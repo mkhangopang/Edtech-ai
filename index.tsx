@@ -33,6 +33,35 @@ interface User {
   joinedDate: number;
 }
 
+interface RubricConfig {
+  assignment: string;
+  gradeLevel: string;
+  scale: '3' | '4' | '5';
+  bloomsLevel: string;
+  objectives: string;
+  useActiveDoc: boolean;
+}
+
+interface LessonConfig {
+  templateId: string;
+  topic: string;
+  gradeLevel: string;
+  duration: string;
+  objectives: string;
+  standards: string;
+  useActiveDoc: boolean;
+}
+
+interface AssessmentConfig {
+  type: 'mixed' | 'mcq' | 'srq' | 'erq';
+  topic: string;
+  gradeLevel: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  count: number;
+  includeKey: boolean;
+  useActiveDoc: boolean;
+}
+
 // Global window extensions for CDN libraries
 declare global {
   interface Window {
@@ -50,10 +79,54 @@ const DEFAULT_MASTER_PROMPT = "You are an expert educational assistant and pedag
 const STORAGE_KEYS = {
   USERS: 'docmaster_users',
   SESSION: 'docmaster_session',
-  PROMPT: 'docmaster_prompt'
+  PROMPT: 'docmaster_prompt',
+  STATS: 'docmaster_stats'
 };
 
+const BLOOMS_LEVELS = [
+  { id: 'Remembering', label: 'Remembering (Recall facts)' },
+  { id: 'Understanding', label: 'Understanding (Explain ideas)' },
+  { id: 'Applying', label: 'Applying (Use information)' },
+  { id: 'Analyzing', label: 'Analyzing (Draw connections)' },
+  { id: 'Evaluating', label: 'Evaluating (Justify a stand)' },
+  { id: 'Creating', label: 'Creating (Produce original work)' },
+  { id: 'Mixed', label: 'Mixed / Varied Levels' }
+];
+
+const LESSON_TEMPLATES = [
+  { 
+    id: '5e', 
+    name: '5E Instructional Model', 
+    description: 'Inquiry-based: Engage, Explore, Explain, Elaborate, Evaluate.',
+    sections: ['Engage', 'Explore', 'Explain', 'Elaborate', 'Evaluate'] 
+  },
+  { 
+    id: 'direct', 
+    name: 'Direct Instruction', 
+    description: 'Classic structure: Objectives, Modeling, Guided & Independent Practice.',
+    sections: ['Anticipatory Set', 'Direct Instruction', 'Guided Practice', 'Independent Practice', 'Closure'] 
+  },
+  { 
+    id: 'ubd', 
+    name: 'Understanding by Design (UbD)', 
+    description: 'Backward design focusing on desired results and evidence.',
+    sections: ['Desired Results', 'Assessment Evidence', 'Learning Plan'] 
+  }
+];
+
 // --- Icons (SVG) ---
+
+const IconMenu = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+);
+
+const IconClose = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+);
 
 const IconUpload = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -145,6 +218,30 @@ const IconShield = () => (
   </svg>
 );
 
+const IconTable = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7-4h14M4 6h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" />
+  </svg>
+);
+
+const IconClipboard = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+  </svg>
+);
+
+const IconClipboardCheck = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+  </svg>
+);
+
+const IconSparkles = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" />
+  </svg>
+);
+
 // --- Helpers ---
 
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -200,6 +297,20 @@ const setSession = (user: User) => {
 
 const clearSession = () => {
   localStorage.removeItem(STORAGE_KEYS.SESSION);
+};
+
+// --- Stats Helpers ---
+
+const getSystemStats = () => {
+  const statsStr = localStorage.getItem(STORAGE_KEYS.STATS);
+  // Default to some simulated data so the dashboard isn't empty on first run
+  return statsStr ? JSON.parse(statsStr) : { docs: 42, queries: 128 };
+};
+
+const incrementStat = (key: 'docs' | 'queries') => {
+  const stats = getSystemStats();
+  stats[key]++;
+  localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(stats));
 };
 
 // --- Format Options ---
@@ -399,14 +510,494 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
   );
 };
 
+// --- Rubric Generator Component ---
+const RubricGeneratorModal = ({ 
+  isOpen, 
+  onClose, 
+  onGenerate,
+  activeDocName
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onGenerate: (config: RubricConfig) => void,
+  activeDocName: string | null
+}) => {
+  const [config, setConfig] = useState<RubricConfig>({
+    assignment: '',
+    gradeLevel: '9th Grade',
+    scale: '4',
+    bloomsLevel: 'Applying',
+    objectives: '',
+    useActiveDoc: !!activeDocName
+  });
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="flex justify-between items-center">
+             <div className="flex items-center gap-3">
+               <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                 <IconTable />
+               </div>
+               <div>
+                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">Rubric Generator</h2>
+                 <p className="text-xs text-gray-500 dark:text-gray-400">Create detailed grading rubrics instantly</p>
+               </div>
+             </div>
+             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+               <IconClose />
+             </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4 overflow-y-auto">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assignment Title / Description</label>
+            <textarea 
+              value={config.assignment}
+              onChange={(e) => setConfig({...config, assignment: e.target.value})}
+              placeholder="e.g. Persuasive Essay on Climate Change"
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+              rows={3}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade Level</label>
+               <select 
+                 value={config.gradeLevel}
+                 onChange={(e) => setConfig({...config, gradeLevel: e.target.value})}
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               >
+                 <option>Elementary (K-5)</option>
+                 <option>Middle School (6-8)</option>
+                 <option>9th Grade</option>
+                 <option>10th Grade</option>
+                 <option>11th Grade</option>
+                 <option>12th Grade</option>
+                 <option>Undergraduate</option>
+                 <option>Graduate</option>
+               </select>
+             </div>
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Point Scale</label>
+               <select 
+                 value={config.scale}
+                 onChange={(e) => setConfig({...config, scale: e.target.value as any})}
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               >
+                 <option value="3">3-Point (Low/Mid/High)</option>
+                 <option value="4">4-Point (Standard)</option>
+                 <option value="5">5-Point (Detailed)</option>
+               </select>
+             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target Bloom's Level</label>
+            <select 
+              value={config.bloomsLevel}
+              onChange={(e) => setConfig({...config, bloomsLevel: e.target.value})}
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+            >
+              {BLOOMS_LEVELS.map(level => (
+                <option key={level.id} value={level.id}>{level.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Learning Objectives / Criteria (Optional)</label>
+            <textarea 
+              value={config.objectives}
+              onChange={(e) => setConfig({...config, objectives: e.target.value})}
+              placeholder="e.g. Grammar, Thesis Statement, Evidence usage..."
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+              rows={2}
+            />
+          </div>
+          
+          {activeDocName && (
+            <div className="flex items-center gap-2 pt-2">
+               <input 
+                 type="checkbox" 
+                 id="useActiveDoc"
+                 checked={config.useActiveDoc}
+                 onChange={(e) => setConfig({...config, useActiveDoc: e.target.checked})}
+                 className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 border-gray-300"
+               />
+               <label htmlFor="useActiveDoc" className="text-sm text-gray-700 dark:text-gray-300">
+                 Base on active document: <span className="font-medium text-primary-600">{activeDocName}</span>
+               </label>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3">
+           <button 
+             onClick={onClose}
+             className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+           >
+             Cancel
+           </button>
+           <button 
+             onClick={() => onGenerate(config)}
+             disabled={!config.assignment}
+             className="px-5 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/30 transition-all flex items-center gap-2"
+           >
+             <IconSparkles />
+             Generate Rubric
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Assessment Generator Component ---
+const AssessmentGeneratorModal = ({ 
+  isOpen, 
+  onClose, 
+  onGenerate,
+  activeDocName
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onGenerate: (config: AssessmentConfig) => void,
+  activeDocName: string | null
+}) => {
+  const [config, setConfig] = useState<AssessmentConfig>({
+    type: 'mixed',
+    topic: '',
+    gradeLevel: '9th Grade',
+    difficulty: 'medium',
+    count: 10,
+    includeKey: true,
+    useActiveDoc: !!activeDocName
+  });
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="flex justify-between items-center">
+             <div className="flex items-center gap-3">
+               <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                 <IconClipboardCheck />
+               </div>
+               <div>
+                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">Assessment Generator</h2>
+                 <p className="text-xs text-gray-500 dark:text-gray-400">Generate MCQs, SRQs, and ERQs</p>
+               </div>
+             </div>
+             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+               <IconClose />
+             </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4 overflow-y-auto">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Question Type</label>
+            <div className="grid grid-cols-2 gap-2">
+                {[
+                    { id: 'mixed', label: 'Mixed Assessment' },
+                    { id: 'mcq', label: 'Multiple Choice (MCQ)' },
+                    { id: 'srq', label: 'Short Response (SRQ)' },
+                    { id: 'erq', label: 'Extended Response (ERQ)' }
+                ].map(type => (
+                    <button
+                        key={type.id}
+                        onClick={() => setConfig({...config, type: type.id as any})}
+                        className={`py-2 px-3 text-sm rounded-lg border transition-all ${
+                            config.type === type.id 
+                            ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-500 text-primary-700 dark:text-primary-300 font-medium' 
+                            : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+                        }`}
+                    >
+                        {type.label}
+                    </button>
+                ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Topic / Subject</label>
+            <input 
+              type="text"
+              value={config.topic}
+              onChange={(e) => setConfig({...config, topic: e.target.value})}
+              placeholder="e.g. World War II, Calculus, Shakespeare"
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade Level</label>
+               <input 
+                 type="text"
+                 value={config.gradeLevel}
+                 onChange={(e) => setConfig({...config, gradeLevel: e.target.value})}
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               />
+             </div>
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total Questions</label>
+               <input 
+                 type="number"
+                 min="1"
+                 max="50"
+                 value={config.count}
+                 onChange={(e) => setConfig({...config, count: parseInt(e.target.value) || 10})}
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               />
+             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Difficulty</label>
+            <select 
+              value={config.difficulty}
+              onChange={(e) => setConfig({...config, difficulty: e.target.value as any})}
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+            >
+              <option value="easy">Easy (Recall/Basic Understanding)</option>
+              <option value="medium">Medium (Application/Analysis)</option>
+              <option value="hard">Hard (Evaluation/Synthesis)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+               <input 
+                 type="checkbox" 
+                 id="includeKey"
+                 checked={config.includeKey}
+                 onChange={(e) => setConfig({...config, includeKey: e.target.checked})}
+                 className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 border-gray-300"
+               />
+               <label htmlFor="includeKey" className="text-sm text-gray-700 dark:text-gray-300">
+                 Include Answer Key & Explanations
+               </label>
+          </div>
+          
+          {activeDocName && (
+            <div className="flex items-center gap-2">
+               <input 
+                 type="checkbox" 
+                 id="useActiveDocAssess"
+                 checked={config.useActiveDoc}
+                 onChange={(e) => setConfig({...config, useActiveDoc: e.target.checked})}
+                 className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 border-gray-300"
+               />
+               <label htmlFor="useActiveDocAssess" className="text-sm text-gray-700 dark:text-gray-300">
+                 Base on active document: <span className="font-medium text-primary-600">{activeDocName}</span>
+               </label>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3">
+           <button 
+             onClick={onClose}
+             className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+           >
+             Cancel
+           </button>
+           <button 
+             onClick={() => onGenerate(config)}
+             disabled={!config.topic && !config.useActiveDoc}
+             className="px-5 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/30 transition-all flex items-center gap-2"
+           >
+             <IconSparkles />
+             Generate Quiz
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Lesson Plan Modal Component ---
+const LessonPlanModal = ({ 
+  isOpen, 
+  onClose, 
+  onGenerate,
+  activeDocName
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onGenerate: (config: LessonConfig) => void,
+  activeDocName: string | null
+}) => {
+  const [config, setConfig] = useState<LessonConfig>({
+    templateId: '5e',
+    topic: '',
+    gradeLevel: '9th Grade',
+    duration: '60 minutes',
+    objectives: '',
+    standards: '',
+    useActiveDoc: !!activeDocName
+  });
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="flex justify-between items-center">
+             <div className="flex items-center gap-3">
+               <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                 <IconClipboard />
+               </div>
+               <div>
+                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">Lesson Plan Generator</h2>
+                 <p className="text-xs text-gray-500 dark:text-gray-400">Design lessons using proven frameworks</p>
+               </div>
+             </div>
+             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+               <IconClose />
+             </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4 overflow-y-auto">
+          {/* Template Selection */}
+          <div>
+             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Lesson Framework</label>
+             <div className="grid grid-cols-1 gap-2">
+                {LESSON_TEMPLATES.map(template => (
+                   <div 
+                      key={template.id}
+                      onClick={() => setConfig({...config, templateId: template.id})}
+                      className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                        config.templateId === template.id
+                        ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-500 ring-1 ring-primary-500'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-400'
+                      }`}
+                   >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{template.name}</span>
+                        {config.templateId === template.id && (
+                           <span className="text-primary-600 dark:text-primary-400"><IconSparkles /></span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{template.description}</p>
+                   </div>
+                ))}
+             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Topic / Subject</label>
+            <input 
+              type="text"
+              value={config.topic}
+              onChange={(e) => setConfig({...config, topic: e.target.value})}
+              placeholder="e.g. Photosynthesis, The Civil War, Linear Equations"
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade Level</label>
+               <input 
+                 type="text"
+                 value={config.gradeLevel}
+                 onChange={(e) => setConfig({...config, gradeLevel: e.target.value})}
+                 placeholder="e.g. 5th Grade"
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               />
+             </div>
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Duration</label>
+               <input 
+                 type="text"
+                 value={config.duration}
+                 onChange={(e) => setConfig({...config, duration: e.target.value})}
+                 placeholder="e.g. 60 min"
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               />
+             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Learning Objectives</label>
+            <textarea 
+              value={config.objectives}
+              onChange={(e) => setConfig({...config, objectives: e.target.value})}
+              placeholder="e.g. Students will be able to identify key battles..."
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+              rows={2}
+            />
+          </div>
+
+          <div>
+             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Standards (Optional)</label>
+             <input 
+               type="text"
+               value={config.standards}
+               onChange={(e) => setConfig({...config, standards: e.target.value})}
+               placeholder="e.g. CCSS.ELA-LITERACY.RL.9-10.1"
+               className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+             />
+          </div>
+          
+          {activeDocName && (
+            <div className="flex items-center gap-2 pt-2">
+               <input 
+                 type="checkbox" 
+                 id="useActiveDocLesson"
+                 checked={config.useActiveDoc}
+                 onChange={(e) => setConfig({...config, useActiveDoc: e.target.checked})}
+                 className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 border-gray-300"
+               />
+               <label htmlFor="useActiveDocLesson" className="text-sm text-gray-700 dark:text-gray-300">
+                 Base on content from: <span className="font-medium text-primary-600">{activeDocName}</span>
+               </label>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3">
+           <button 
+             onClick={onClose}
+             className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+           >
+             Cancel
+           </button>
+           <button 
+             onClick={() => onGenerate(config)}
+             disabled={!config.topic}
+             className="px-5 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/30 transition-all flex items-center gap-2"
+           >
+             <IconSparkles />
+             Generate Lesson
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Admin Dashboard Component ---
 
 const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onClose: () => void, currentUser: User }) => {
   const [users, setUsers] = useState<User[]>([]);
+  const [stats, setStats] = useState({ docs: 0, queries: 0 });
   
   useEffect(() => {
     if (isOpen) {
       setUsers(getStoredUsers());
+      setStats(getSystemStats());
     }
   }, [isOpen]);
 
@@ -426,7 +1017,7 @@ const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-900 w-full max-w-5xl h-[80vh] rounded-2xl shadow-2xl flex flex-col border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 w-full max-w-6xl h-[80vh] rounded-2xl shadow-2xl flex flex-col border border-gray-200 dark:border-gray-700 overflow-hidden">
         {/* Header */}
         <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
           <div className="flex items-center gap-3">
@@ -439,30 +1030,41 @@ const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onC
              </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-gray-500">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <IconClose />
           </button>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8">
            {/* Stats */}
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
               <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Users</h3>
-                 <div className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">{users.length}</div>
-                 <div className="mt-1 text-xs text-green-500 font-medium">+12% from last month</div>
+                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Users</h3>
+                 <div className="mt-3 flex items-baseline">
+                   <div className="text-3xl font-bold text-gray-900 dark:text-white">{users.length}</div>
+                 </div>
+                 <div className="mt-2 text-xs text-green-500 font-medium">+12% from last month</div>
               </div>
               <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Sessions</h3>
-                 <div className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">1</div>
-                 <div className="mt-1 text-xs text-gray-400">Current active session</div>
+                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Sessions</h3>
+                 <div className="mt-3 flex items-baseline">
+                   <div className="text-3xl font-bold text-gray-900 dark:text-white">1</div>
+                 </div>
+                 <div className="mt-2 text-xs text-gray-400">Current session active</div>
               </div>
               <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">System Status</h3>
-                 <div className="mt-2 text-3xl font-bold text-green-500">Healthy</div>
-                 <div className="mt-1 text-xs text-gray-400">All systems operational</div>
+                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Documents</h3>
+                 <div className="mt-3 flex items-baseline">
+                   <div className="text-3xl font-bold text-gray-900 dark:text-white">{stats.docs}</div>
+                 </div>
+                 <div className="mt-2 text-xs text-indigo-500 font-medium">Uploaded to system</div>
+              </div>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total AI Queries</h3>
+                 <div className="mt-3 flex items-baseline">
+                   <div className="text-3xl font-bold text-gray-900 dark:text-white">{stats.queries}</div>
+                 </div>
+                 <div className="mt-2 text-xs text-purple-500 font-medium">Lifetime generations</div>
               </div>
            </div>
 
@@ -541,6 +1143,9 @@ const App = () => {
     return localStorage.getItem(STORAGE_KEYS.PROMPT) || DEFAULT_MASTER_PROMPT;
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [showRubricModal, setShowRubricModal] = useState(false);
+  const [showLessonModal, setShowLessonModal] = useState(false);
+  const [showAssessmentModal, setShowAssessmentModal] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -549,6 +1154,10 @@ const App = () => {
   const [fileError, setFileError] = useState<string | null>(null);
   const [showWelcome, setShowWelcome] = useState(true);
   const [selectedFormat, setSelectedFormat] = useState<OutputFormat>('auto');
+  
+  // UI State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -636,6 +1245,7 @@ const App = () => {
       setDocuments(prev => [...prev, newDoc]);
       setActiveDocId(newDoc.id);
       setShowWelcome(false);
+      incrementStat('docs');
     } catch (err) {
       console.error(err);
       setFileError("Failed to process file. Please try again.");
@@ -660,6 +1270,267 @@ const App = () => {
     // Visual feedback could be added here
   };
 
+  const handleGenerateRubric = async (config: RubricConfig) => {
+    setShowRubricModal(false);
+    setIsSidebarOpen(false); // Close mobile sidebar if open
+    if (!process.env.API_KEY) {
+      alert("API Key is missing in the environment variables.");
+      return;
+    }
+
+    const activeDoc = documents.find(d => d.id === activeDocId);
+    
+    const userText = `Generate a ${config.scale}-point rubric for "${config.assignment}" (${config.gradeLevel}) focusing on ${config.bloomsLevel}.`;
+    const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        text: userText,
+        timestamp: Date.now()
+    };
+    
+    setMessages(prev => [...prev, userMsg]);
+    setIsLoading(true);
+    setShowWelcome(false);
+    incrementStat('queries');
+
+    try {
+       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       
+       let contentParts = [];
+       // Add Context if selected
+       if (config.useActiveDoc && activeDoc) {
+          contentParts.push(`CONTEXT (Active Document - ${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}\n\n`);
+       }
+
+       const systemPrompt = `
+Task: Create a detailed grading rubric.
+Assignment: ${config.assignment}
+Grade Level: ${config.gradeLevel}
+Scale: ${config.scale}-Point Scale
+Target Cognitive Level (Bloom's Taxonomy): ${config.bloomsLevel}
+Specific Objectives/Criteria: ${config.objectives || 'Standard academic criteria for this task.'}
+
+Output Format Requirements:
+1. Provide a title for the rubric (H2).
+2. Create a Markdown Table.
+3. Columns must be the performance levels (e.g. 1 to ${config.scale}).
+4. Rows must be the assessment criteria.
+5. Cells must contain detailed descriptors of performance for that level.
+6. Use clear, professional educational language.
+7. Ensure the criteria descriptors reflect the selected Bloom's Taxonomy level (${config.bloomsLevel}) where appropriate.
+       `;
+       
+       contentParts.push(systemPrompt);
+
+       const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: contentParts.join(''),
+        config: {
+          systemInstruction: masterPrompt,
+        }
+      });
+
+      const text = response.text;
+
+      const aiMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: text,
+        timestamp: Date.now(),
+        format: 'table'
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+    } catch (err) {
+        console.error(err);
+        setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: "Error generating rubric. Please check your connection and API key.",
+          timestamp: Date.now(),
+          isError: true
+        }]);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  const handleGenerateLessonPlan = async (config: LessonConfig) => {
+    setShowLessonModal(false);
+    setIsSidebarOpen(false); // Close mobile sidebar if open
+    if (!process.env.API_KEY) {
+      alert("API Key is missing in the environment variables.");
+      return;
+    }
+
+    const activeDoc = documents.find(d => d.id === activeDocId);
+    const selectedTemplate = LESSON_TEMPLATES.find(t => t.id === config.templateId);
+    
+    const userText = `Generate a ${selectedTemplate?.name} lesson plan for "${config.topic}" (${config.gradeLevel}).`;
+    const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        text: userText,
+        timestamp: Date.now()
+    };
+    
+    setMessages(prev => [...prev, userMsg]);
+    setIsLoading(true);
+    setShowWelcome(false);
+    incrementStat('queries');
+
+    try {
+       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       
+       let contentParts = [];
+       // Add Context if selected
+       if (config.useActiveDoc && activeDoc) {
+          contentParts.push(`CONTEXT (Active Document - ${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}\n\n`);
+       }
+
+       const systemPrompt = `
+Task: Create a detailed lesson plan.
+Framework: ${selectedTemplate?.name}
+Topic: ${config.topic}
+Grade Level: ${config.gradeLevel}
+Duration: ${config.duration}
+Objectives: ${config.objectives || 'Appropriate for grade level'}
+Standards: ${config.standards || 'Relevant state/national standards'}
+
+Output Format Requirements:
+1. Title (H1): Lesson Topic
+2. Header Info: Grade, Time, Standards.
+3. Structure the lesson strictly using the ${selectedTemplate?.name} phases: ${selectedTemplate?.sections.join(', ')}.
+4. Use H2 for each phase/section.
+5. Provide specific activities, teacher moves, and student actions for each phase.
+6. Include a Materials list.
+7. Use professional educational tone.
+       `;
+       
+       contentParts.push(systemPrompt);
+
+       const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: contentParts.join(''),
+        config: {
+          systemInstruction: masterPrompt,
+        }
+      });
+
+      const text = response.text;
+
+      const aiMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: text,
+        timestamp: Date.now(),
+        format: 'report'
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+    } catch (err) {
+        console.error(err);
+        setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: "Error generating lesson plan. Please check your connection and API key.",
+          timestamp: Date.now(),
+          isError: true
+        }]);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  const handleGenerateAssessment = async (config: AssessmentConfig) => {
+    setShowAssessmentModal(false);
+    setIsSidebarOpen(false); // Close mobile sidebar if open
+    if (!process.env.API_KEY) {
+      alert("API Key is missing in the environment variables.");
+      return;
+    }
+
+    const activeDoc = documents.find(d => d.id === activeDocId);
+    
+    const userText = `Generate a ${config.count} question ${config.type.toUpperCase()} assessment for "${config.topic}" (${config.gradeLevel}).`;
+    const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        text: userText,
+        timestamp: Date.now()
+    };
+    
+    setMessages(prev => [...prev, userMsg]);
+    setIsLoading(true);
+    setShowWelcome(false);
+    incrementStat('queries');
+
+    try {
+       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       
+       let contentParts = [];
+       // Add Context if selected
+       if (config.useActiveDoc && activeDoc) {
+          contentParts.push(`CONTEXT (Active Document - ${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}\n\n`);
+       }
+
+       const systemPrompt = `
+Task: Create a student assessment/quiz.
+Topic: ${config.topic}
+Grade Level: ${config.gradeLevel}
+Difficulty: ${config.difficulty}
+Question Type: ${config.type === 'mixed' ? 'Mixed (MCQ, SRQ, ERQ)' : config.type.toUpperCase()}
+Number of Questions: ${config.count}
+Include Answer Key: ${config.includeKey ? 'Yes' : 'No'}
+
+Output Format Requirements:
+1. Title (H1): Assessment Title
+2. Instructions (H3): Brief student instructions.
+3. Questions: Numbered list.
+   - For MCQs: Provide the question stem and 4 distinct options (a, b, c, d).
+   - For SRQs: Provide the prompt and ample space for lines (represented by underscores).
+   - For ERQs: Provide the prompt.
+4. Answer Key (if requested): Provide in a separate section at the very end (H2: Answer Key). For MCQs, give the correct letter. For SRQ/ERQs, provide bullet points of expected answers.
+       `;
+       
+       contentParts.push(systemPrompt);
+
+       const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: contentParts.join(''),
+        config: {
+          systemInstruction: masterPrompt,
+        }
+      });
+
+      const text = response.text;
+
+      const aiMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: text,
+        timestamp: Date.now(),
+        format: 'report'
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+    } catch (err) {
+        console.error(err);
+        setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: "Error generating assessment. Please check your connection and API key.",
+          timestamp: Date.now(),
+          isError: true
+        }]);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
     if (!process.env.API_KEY) {
@@ -681,6 +1552,7 @@ const App = () => {
     setInput('');
     setIsLoading(true);
     setShowWelcome(false);
+    incrementStat('queries');
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -792,43 +1664,106 @@ const App = () => {
         currentUser={currentUser}
       />
 
-      {/* Left Sidebar - Document Manager */}
-      <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col shadow-xl z-20 flex-shrink-0">
+      {/* Rubric Generator Modal */}
+      <RubricGeneratorModal
+        isOpen={showRubricModal}
+        onClose={() => setShowRubricModal(false)}
+        onGenerate={handleGenerateRubric}
+        activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
+      />
+
+      {/* Lesson Plan Generator Modal */}
+      <LessonPlanModal
+        isOpen={showLessonModal}
+        onClose={() => setShowLessonModal(false)}
+        onGenerate={handleGenerateLessonPlan}
+        activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
+      />
+
+      {/* Assessment Generator Modal */}
+      <AssessmentGeneratorModal
+        isOpen={showAssessmentModal}
+        onClose={() => setShowAssessmentModal(false)}
+        onGenerate={handleGenerateAssessment}
+        activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
+      />
+
+      {/* Mobile Sidebar Backdrop */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Left Sidebar - Responsive Navigation */}
+      <div className={`
+        fixed lg:static inset-y-0 left-0 z-40
+        flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shadow-xl lg:shadow-none
+        transition-all duration-300 ease-in-out transform
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-80'}
+        w-80 h-full
+      `}>
         
         {/* Sidebar Header */}
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-          <div className="flex items-center gap-3 mb-1">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-between items-center h-20">
+          <div className={`flex items-center gap-3 transition-opacity duration-200 ${isSidebarCollapsed ? 'lg:opacity-0 lg:hidden' : 'opacity-100'}`}>
              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg shadow-primary-500/30">
                 E
              </div>
-             <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">Edtech AI</h1>
+             <div>
+                 <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">Edtech AI</h1>
+                 <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Smart Education OS</p>
+             </div>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium ml-11">Smart Educational Assistant</p>
+          
+          {/* Collapse Toggle (Desktop) */}
+          <button 
+             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+             className="hidden lg:flex p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors"
+          >
+             {isSidebarCollapsed ? (
+                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">E</div>
+             ) : (
+                <IconMenu />
+             )}
+          </button>
+
+          {/* Close Button (Mobile) */}
+          <button 
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-2 text-gray-500"
+          >
+            <IconClose />
+          </button>
         </div>
 
         {/* User Profile Snippet */}
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-           <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-accent-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+        <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
+           <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-accent-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm shadow-md flex-shrink-0">
                  {currentUser.name.charAt(0)}
               </div>
-              <div className="flex-1 min-w-0">
-                 <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{currentUser.name}</p>
-                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">{currentUser.email}</span>
-                    {currentUser.role === 'admin' && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
-                            ADMIN
-                        </span>
-                    )}
-                 </div>
-              </div>
+              {!isSidebarCollapsed && (
+                <div className="flex-1 min-w-0 animate-fadeIn">
+                   <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{currentUser.name}</p>
+                   <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">{currentUser.email}</span>
+                      {currentUser.role === 'admin' && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                              ADMIN
+                          </span>
+                      )}
+                   </div>
+                </div>
+              )}
            </div>
            
-           {currentUser.role === 'admin' && (
+           {!isSidebarCollapsed && currentUser.role === 'admin' && (
               <button 
-                onClick={() => setShowAdminPanel(true)}
-                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-white bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                onClick={() => { setShowAdminPanel(true); setIsSidebarOpen(false); }}
+                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-white bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 rounded-lg transition-colors animate-fadeIn"
               >
                  <IconShield />
                  Admin Panel
@@ -836,64 +1771,104 @@ const App = () => {
            )}
         </div>
 
+        {/* AI Tools Section */}
+        <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 space-y-2 overflow-y-auto max-h-48">
+           {!isSidebarCollapsed && <h3 className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 animate-fadeIn">AI Tools</h3>}
+           
+           <button 
+             onClick={() => { setShowRubricModal(true); setIsSidebarOpen(false); }}
+             title="Rubric Generator"
+             className={`w-full flex items-center gap-2 p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-all text-sm font-medium border border-indigo-200 dark:border-indigo-800 ${isSidebarCollapsed ? 'justify-center' : ''}`}
+           >
+              <IconTable />
+              {!isSidebarCollapsed && <span className="animate-fadeIn">Rubric Generator</span>}
+           </button>
+
+           <button 
+             onClick={() => { setShowLessonModal(true); setIsSidebarOpen(false); }}
+             title="Lesson Plan Generator"
+             className={`w-full flex items-center gap-2 p-2 rounded-lg bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/30 transition-all text-sm font-medium border border-teal-200 dark:border-teal-800 ${isSidebarCollapsed ? 'justify-center' : ''}`}
+           >
+              <IconClipboard />
+              {!isSidebarCollapsed && <span className="animate-fadeIn">Lesson Plan Generator</span>}
+           </button>
+
+           <button 
+             onClick={() => { setShowAssessmentModal(true); setIsSidebarOpen(false); }}
+             title="Assessment Generator"
+             className={`w-full flex items-center gap-2 p-2 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/30 transition-all text-sm font-medium border border-rose-200 dark:border-rose-800 ${isSidebarCollapsed ? 'justify-center' : ''}`}
+           >
+              <IconClipboardCheck />
+              {!isSidebarCollapsed && <span className="animate-fadeIn">Quiz Generator</span>}
+           </button>
+        </div>
+
         {/* Upload Section */}
-        <div className="p-6">
-          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all group">
-            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+        <div className="p-4">
+          <label className={`flex flex-col items-center justify-center w-full ${isSidebarCollapsed ? 'h-16' : 'h-24'} border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all group`}>
+            <div className="flex flex-col items-center justify-center pt-2 pb-3 text-center">
               {isProcessingFile ? (
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mb-2"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
               ) : (
-                <div className="text-gray-400 group-hover:text-primary-500 transition-colors mb-2">
+                <div className="text-gray-400 group-hover:text-primary-500 transition-colors">
                    <IconUpload />
                 </div>
               )}
-              <p className="mb-1 text-sm text-gray-500 dark:text-gray-400 font-medium group-hover:text-primary-600 dark:group-hover:text-primary-400">
-                {isProcessingFile ? 'Processing...' : 'Click to upload'}
-              </p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">PDF, DOCX, TXT (Max 10MB)</p>
+              {!isSidebarCollapsed && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 font-medium group-hover:text-primary-600 dark:group-hover:text-primary-400 animate-fadeIn">
+                    {isProcessingFile ? '...' : 'Upload File'}
+                  </p>
+              )}
             </div>
             <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={handleFileUpload} disabled={isProcessingFile} />
           </label>
-          {fileError && <p className="mt-2 text-xs text-red-500 text-center animate-pulse">{fileError}</p>}
+          {fileError && !isSidebarCollapsed && <p className="mt-2 text-xs text-red-500 text-center animate-pulse">{fileError}</p>}
         </div>
 
         {/* Document List */}
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
-          <h3 className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Your Documents</h3>
+          {!isSidebarCollapsed && <h3 className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 animate-fadeIn">Documents</h3>}
           {documents.length === 0 ? (
-             <div className="text-center py-8 text-gray-400 text-sm italic">
-                No documents yet.
-             </div>
+             !isSidebarCollapsed && (
+                 <div className="text-center py-8 text-gray-400 text-sm italic animate-fadeIn">
+                    No documents yet.
+                 </div>
+             )
           ) : (
             documents.map(doc => (
               <div 
                 key={doc.id}
-                onClick={() => setActiveDocId(doc.id)}
+                onClick={() => { setActiveDocId(doc.id); setIsSidebarOpen(false); }}
+                title={doc.name}
                 className={`group flex items-center p-3 rounded-xl cursor-pointer transition-all border ${
                   activeDocId === doc.id 
                     ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800 shadow-sm' 
                     : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 border-transparent'
-                }`}
+                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
               >
-                <div className="flex-shrink-0 mr-3">
+                <div className="flex-shrink-0">
                   <IconFile type={doc.type} />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${
-                    activeDocId === doc.id ? 'text-primary-700 dark:text-primary-300' : 'text-gray-700 dark:text-gray-300'
-                  }`}>
-                    {doc.name}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {formatBytes(doc.size)} • {new Date(doc.uploadDate).toLocaleDateString()}
-                  </p>
-                </div>
-                <button 
-                  onClick={(e) => handleDeleteDoc(doc.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
-                >
-                  <IconTrash />
-                </button>
+                {!isSidebarCollapsed && (
+                    <div className="flex-1 min-w-0 ml-3 animate-fadeIn">
+                      <p className={`text-sm font-medium truncate ${
+                        activeDocId === doc.id ? 'text-primary-700 dark:text-primary-300' : 'text-gray-700 dark:text-gray-300'
+                      }`}>
+                        {doc.name}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {formatBytes(doc.size)}
+                      </p>
+                    </div>
+                )}
+                {!isSidebarCollapsed && (
+                    <button 
+                      onClick={(e) => handleDeleteDoc(doc.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+                    >
+                      <IconTrash />
+                    </button>
+                )}
               </div>
             ))
           )}
@@ -903,29 +1878,40 @@ const App = () => {
         <div className="p-4 border-t border-gray-200 dark:border-gray-700">
            <button 
              onClick={handleLogout}
-             className="flex items-center justify-center w-full gap-2 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+             title="Sign Out"
+             className={`flex items-center justify-center w-full gap-2 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors ${isSidebarCollapsed ? 'px-0' : ''}`}
            >
              <IconLogout />
-             Sign Out
+             {!isSidebarCollapsed && <span className="animate-fadeIn">Sign Out</span>}
            </button>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 relative">
+      <div className="flex-1 flex flex-col min-w-0 relative h-full">
         
         {/* Header */}
-        <header className="h-16 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-10">
-          <div className="flex items-center text-sm breadcrumbs text-gray-500">
-            <span className="font-medium text-gray-900 dark:text-white">Workspace</span>
-            <span className="mx-2">/</span>
-            {activeDocId ? (
-               <span className="text-primary-600 dark:text-primary-400 truncate max-w-xs">
-                 {documents.find(d => d.id === activeDocId)?.name}
-               </span>
-            ) : (
-               <span>General Chat</span>
-            )}
+        <header className="h-16 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md flex items-center justify-between px-4 lg:px-6 sticky top-0 z-20">
+          <div className="flex items-center gap-3">
+             {/* Mobile Menu Toggle */}
+             <button 
+                onClick={() => setIsSidebarOpen(true)}
+                className="lg:hidden p-2 -ml-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+             >
+                <IconMenu />
+             </button>
+             
+             <div className="flex items-center text-sm breadcrumbs text-gray-500 overflow-hidden">
+                <span className="font-medium text-gray-900 dark:text-white hidden sm:inline">Workspace</span>
+                <span className="mx-2 hidden sm:inline">/</span>
+                {activeDocId ? (
+                   <span className="text-primary-600 dark:text-primary-400 truncate max-w-[150px] sm:max-w-xs font-medium">
+                     {documents.find(d => d.id === activeDocId)?.name}
+                   </span>
+                ) : (
+                   <span>General Chat</span>
+                )}
+             </div>
           </div>
 
           <div className="flex items-center space-x-2 md:space-x-4">
@@ -940,7 +1926,7 @@ const App = () => {
             {/* Master Prompt Settings - ADMIN ONLY */}
             {currentUser?.role === 'admin' && (
               <>
-                <div className="h-6 w-px bg-gray-300 dark:bg-gray-700 mx-2"></div>
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-700 mx-2 hidden sm:block"></div>
                 <button
                   onClick={() => setShowSettings(!showSettings)}
                   className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${
@@ -1000,26 +1986,26 @@ const App = () => {
 
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth" id="chat-container">
-          <div className="max-w-4xl mx-auto space-y-6">
+          <div className="max-w-4xl mx-auto space-y-6 pb-4">
             
             {/* Welcome State */}
             {showWelcome && (
-              <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
-                <div className="w-20 h-20 bg-gradient-to-tr from-primary-100 to-indigo-100 dark:from-primary-900/20 dark:to-indigo-900/20 rounded-3xl flex items-center justify-center mb-6 shadow-xl">
+              <div className="flex flex-col items-center justify-center py-10 md:py-20 text-center animate-fadeIn">
+                <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-tr from-primary-100 to-indigo-100 dark:from-primary-900/20 dark:to-indigo-900/20 rounded-3xl flex items-center justify-center mb-6 shadow-xl">
                    <IconBot />
                 </div>
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-3 px-4">
                   How can I help you today?
                 </h2>
-                <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto text-lg leading-relaxed">
+                <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto text-base md:text-lg leading-relaxed px-4">
                   Upload a lesson plan, rubric, or document to the left, or just ask me anything about pedagogy or curriculum design.
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-10 w-full max-w-2xl">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-8 w-full max-w-2xl px-4">
                    {[
                       'Create a 5E Lesson Plan', 
                       'Generate Bloom\'s Taxonomy questions', 
                       'Draft a rubric for this assignment', 
-                      'Suggest a Master Prompt for a Math Tutor'
+                      'Create a quiz for 5th grade History'
                    ].map((hint) => (
                       <button 
                         key={hint}
@@ -1040,13 +2026,13 @@ const App = () => {
                 className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
               >
                 {msg.role === 'model' && (
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center flex-shrink-0 mt-1 shadow-md">
+                  <div className="hidden sm:flex w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-indigo-600 items-center justify-center flex-shrink-0 mt-1 shadow-md">
                     <span className="text-white text-xs font-bold">AI</span>
                   </div>
                 )}
                 
                 <div 
-                  className={`max-w-[85%] rounded-2xl p-5 shadow-sm ${
+                  className={`max-w-[95%] sm:max-w-[85%] rounded-2xl p-4 sm:p-5 shadow-sm ${
                     msg.role === 'user' 
                       ? 'bg-primary-600 text-white rounded-tr-sm' 
                       : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-tl-sm text-gray-800 dark:text-gray-100'
@@ -1054,7 +2040,7 @@ const App = () => {
                 >
                   <div className="markdown-body">
                     {msg.role === 'user' ? (
-                       <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                       <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">{msg.text}</p>
                     ) : (
                        <MarkdownContent content={msg.text} />
                     )}
@@ -1062,24 +2048,24 @@ const App = () => {
                   
                   {/* Message Actions */}
                   {msg.role === 'model' && !msg.isError && (
-                    <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                    <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700/50">
                       <button 
                         onClick={() => handleCopy(msg.text)}
                         className="text-xs flex items-center gap-1 text-gray-400 hover:text-primary-500 transition-colors px-2 py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
                         <IconCopy /> Copy
                       </button>
-                      <div className="h-3 w-px bg-gray-200 dark:bg-gray-700"></div>
-                      <span className="text-xs text-gray-400 px-1">Download as:</span>
-                      <button onClick={() => handleDownload(msg, 'doc')} className="text-xs font-medium text-blue-500 hover:underline">DOC</button>
-                      <button onClick={() => handleDownload(msg, 'pdf')} className="text-xs font-medium text-red-500 hover:underline">PDF</button>
-                      <button onClick={() => handleDownload(msg, 'txt')} className="text-xs font-medium text-gray-500 hover:underline">TXT</button>
+                      <div className="h-3 w-px bg-gray-200 dark:bg-gray-700 hidden sm:block"></div>
+                      <span className="text-xs text-gray-400 px-1 hidden sm:block">Download:</span>
+                      <button onClick={() => handleDownload(msg, 'doc')} className="text-xs font-medium text-blue-500 hover:underline px-2 py-1">DOC</button>
+                      <button onClick={() => handleDownload(msg, 'pdf')} className="text-xs font-medium text-red-500 hover:underline px-2 py-1">PDF</button>
+                      <button onClick={() => handleDownload(msg, 'txt')} className="text-xs font-medium text-gray-500 hover:underline px-2 py-1">TXT</button>
                     </div>
                   )}
                 </div>
 
                 {msg.role === 'user' && (
-                   <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 mt-1">
+                   <div className="hidden sm:flex w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 items-center justify-center flex-shrink-0 mt-1">
                       <IconUser />
                    </div>
                 )}
@@ -1088,7 +2074,7 @@ const App = () => {
             
             {isLoading && (
               <div className="flex gap-4 justify-start animate-pulse">
-                 <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0"></div>
+                 <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0 hidden sm:block"></div>
                  <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 shadow-sm flex items-center gap-2">
                     <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce"></div>
                     <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-75"></div>
@@ -1101,7 +2087,7 @@ const App = () => {
         </div>
 
         {/* Input Area */}
-        <div className="p-4 md:p-6 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700">
+        <div className="p-4 md:p-6 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700 shrink-0 z-20">
            <div className="max-w-4xl mx-auto">
              {/* Format Selection Toolbar */}
              <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
@@ -1134,11 +2120,12 @@ const App = () => {
                   placeholder="Type a message..."
                   className="w-full max-h-32 bg-transparent border-none focus:ring-0 resize-none py-3 px-3 text-sm dark:text-white placeholder-gray-400"
                   rows={1}
+                  style={{ minHeight: '44px' }}
                 />
                 <button 
                   onClick={handleSend}
                   disabled={!input.trim() || isLoading}
-                  className="p-3 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-xl transition-all shadow-md disabled:shadow-none mb-0.5"
+                  className="p-3 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-xl transition-all shadow-md disabled:shadow-none mb-0.5 shrink-0"
                 >
                   {isLoading ? (
                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -1147,7 +2134,7 @@ const App = () => {
                   )}
                 </button>
              </div>
-             <p className="text-center text-xs text-gray-400 mt-2">
+             <p className="text-center text-[10px] md:text-xs text-gray-400 mt-2">
                AI can make mistakes. Verify important information.
              </p>
            </div>
