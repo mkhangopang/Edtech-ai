@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
@@ -177,6 +176,24 @@ const IconSettings = () => (
   </svg>
 );
 
+const IconCpu = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+  </svg>
+);
+
+const IconLock = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+  </svg>
+);
+
+const IconUnlock = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z" />
+  </svg>
+);
+
 const IconSend = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
     <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
@@ -261,15 +278,15 @@ const IconSparkles = () => (
   </svg>
 );
 
-const IconAlert = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-  </svg>
+const IconCheck = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+    </svg>
 );
 
-const IconRefresh = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+const IconXCircle = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
     </svg>
 );
 
@@ -385,36 +402,6 @@ const MarkdownContent = ({ content }: { content: string }) => {
       className="prose dark:prose-invert max-w-none text-sm leading-relaxed break-words"
       dangerouslySetInnerHTML={{ __html: html }} 
     />
-  );
-};
-
-const SetupRequiredScreen = () => {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4 font-sans text-center">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full p-8 border border-gray-200 dark:border-gray-700">
-         <div className="flex justify-center mb-6">
-           <div className="bg-yellow-100 dark:bg-yellow-900/30 p-4 rounded-full">
-             <IconAlert />
-           </div>
-         </div>
-         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Configuration Required</h1>
-         <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
-           The application requires a valid API Key to function. It seems the <code className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-sm font-mono">API_KEY</code> environment variable is missing.
-         </p>
-         <div className="bg-gray-50 dark:bg-gray-700/50 p-6 rounded-xl text-left border border-gray-200 dark:border-gray-600">
-           <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-3 uppercase tracking-wider">How to fix on Vercel:</h3>
-           <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-600 dark:text-gray-300">
-             <li>Go to your <strong>Vercel Dashboard</strong>.</li>
-             <li>Navigate to <strong>Settings</strong> &rarr; <strong>Environment Variables</strong>.</li>
-             <li>Add a new variable with key <strong>API_KEY</strong> and value as your Gemini API key.</li>
-             <li><strong>Redeploy</strong> your application.</li>
-           </ol>
-         </div>
-         <div className="mt-8 text-xs text-gray-400">
-           If you are running locally, ensure your build tool (e.g. Vite) is configured to expose the variable.
-         </div>
-      </div>
-    </div>
   );
 };
 
@@ -627,6 +614,8 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
     </div>
   );
 };
+
+// ... [Rubric, Assessment, and Lesson Plan Modal components are unchanged] ...
 
 // --- Rubric Generator Component ---
 const RubricGeneratorModal = ({ 
@@ -1111,11 +1100,13 @@ const LessonPlanModal = ({
 const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onClose: () => void, currentUser: User }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState({ docs: 0, queries: 0 });
+  const [hasApiKey, setHasApiKey] = useState(false);
   
   useEffect(() => {
     if (isOpen) {
       setUsers(getStoredUsers());
       setStats(getSystemStats());
+      setHasApiKey(!!getApiKey());
     }
   }, [isOpen]);
 
@@ -1164,11 +1155,21 @@ const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onC
                  <div className="mt-2 text-xs text-green-500 font-medium">+12% from last month</div>
               </div>
               <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Sessions</h3>
-                 <div className="mt-3 flex items-baseline">
-                   <div className="text-3xl font-bold text-gray-900 dark:text-white">1</div>
+                 <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">System Status</h3>
+                 <div className="mt-3 flex items-center gap-2">
+                   {hasApiKey ? (
+                       <>
+                         <IconCheck />
+                         <span className="text-lg font-bold text-green-600">Online</span>
+                       </>
+                   ) : (
+                       <>
+                         <IconXCircle />
+                         <span className="text-lg font-bold text-red-500">API Key Missing</span>
+                       </>
+                   )}
                  </div>
-                 <div className="mt-2 text-xs text-gray-400">Current session active</div>
+                 <div className="mt-2 text-xs text-gray-400">{hasApiKey ? 'Ready for queries' : 'Check environment'}</div>
               </div>
               <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                  <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Documents</h3>
@@ -1253,7 +1254,6 @@ const App = () => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [isApiKeyMissing, setIsApiKeyMissing] = useState(false);
 
   // App State
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
@@ -1267,6 +1267,9 @@ const App = () => {
     }
     return DEFAULT_MASTER_PROMPT;
   });
+  // Neural Core Lock State
+  const [isCoreUnlocked, setIsCoreUnlocked] = useState(false);
+  
   const [showSettings, setShowSettings] = useState(false);
   const [showRubricModal, setShowRubricModal] = useState(false);
   const [showLessonModal, setShowLessonModal] = useState(false);
@@ -1287,14 +1290,6 @@ const App = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // --- Effects ---
-
-  useEffect(() => {
-    // Check for API Key presence
-    const key = getApiKey();
-    if (!key) {
-        setIsApiKeyMissing(true);
-    }
-  }, []);
   
   useEffect(() => {
     // Check for existing session
@@ -1399,8 +1394,9 @@ const App = () => {
 
   const saveMasterPrompt = () => {
     localStorage.setItem(STORAGE_KEYS.PROMPT, masterPrompt);
-    setShowSettings(false);
-    // Visual feedback could be added here
+    setIsCoreUnlocked(false);
+    // Keep panel open but locked to show confirmation, or could close it.
+    // Let's keep it open so they see the lock state change.
   };
 
   const handleGenerateRubric = async (config: RubricConfig) => {
@@ -1409,7 +1405,13 @@ const App = () => {
     
     const apiKey = getApiKey();
     if (!apiKey) {
-      setIsApiKeyMissing(true);
+      setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+          timestamp: Date.now(),
+          isError: true
+      }]);
       return;
     }
 
@@ -1497,7 +1499,13 @@ Output Format Requirements:
     
     const apiKey = getApiKey();
     if (!apiKey) {
-      setIsApiKeyMissing(true);
+      setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+          timestamp: Date.now(),
+          isError: true
+      }]);
       return;
     }
 
@@ -1587,7 +1595,13 @@ Output Format Requirements:
     
     const apiKey = getApiKey();
     if (!apiKey) {
-      setIsApiKeyMissing(true);
+      setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+          timestamp: Date.now(),
+          isError: true
+      }]);
       return;
     }
 
@@ -1675,7 +1689,22 @@ Output Format Requirements:
     
     const apiKey = getApiKey();
     if (!apiKey) {
-      setIsApiKeyMissing(true);
+      setMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'user',
+          text: input,
+          timestamp: Date.now()
+      }]);
+      setTimeout(() => {
+          setMessages(prev => [...prev, {
+              id: crypto.randomUUID(),
+              role: 'model',
+              text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+              timestamp: Date.now(),
+              isError: true
+          }]);
+      }, 500);
+      setInput('');
       return;
     }
 
@@ -1818,12 +1847,7 @@ Output Format Requirements:
 
   // --- Render ---
   
-  // 1. Critical Check: If API Key is missing, show setup screen immediately to Admin or general users if locked
-  if (isApiKeyMissing) {
-      return <SetupRequiredScreen />;
-  }
-
-  // 2. Auth Check
+  // 1. Auth Check
   if (!currentUser) {
     return <AuthScreen onLogin={handleLogin} />;
   }
@@ -2113,54 +2137,115 @@ Output Format Requirements:
                   onClick={() => setShowSettings(!showSettings)}
                   className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${
                     showSettings 
-                      ? 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400' 
+                      ? 'bg-green-900/20 text-green-600 dark:text-green-400' 
                       : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
-                  title="Master Prompt Settings"
+                  title="Neural Core Configuration"
                 >
-                  <IconSettings />
-                  <span className="hidden md:inline text-sm font-medium">Master Prompt</span>
+                  <IconCpu />
+                  <span className="hidden md:inline text-sm font-medium">Neural Core</span>
                 </button>
               </>
             )}
           </div>
         </header>
 
-        {/* Master Prompt Settings Panel - ADMIN ONLY */}
+        {/* NEURAL CORE VAULT - ADMIN ONLY */}
         {showSettings && currentUser?.role === 'admin' && (
-          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 shadow-lg animate-slideDown absolute top-16 left-0 right-0 z-20">
-            <div className="max-w-4xl mx-auto">
-              <div className="flex justify-between items-center mb-4">
-                 <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                   <div className="p-1.5 bg-primary-100 dark:bg-primary-900/50 rounded text-primary-600">
-                     <IconBot />
-                   </div>
-                   Master Prompt Configuration
-                 </h2>
-                 <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-md font-medium">Admin Access Only</span>
+          <div className="bg-gray-900 border-b border-gray-700 p-6 shadow-2xl animate-slideDown absolute top-16 left-0 right-0 z-30 text-green-500 font-mono">
+            <div className="max-w-5xl mx-auto">
+              <div className="flex justify-between items-start mb-6 border-b border-green-900/50 pb-4">
+                  <div>
+                    <h2 className="text-xl font-bold flex items-center gap-3 tracking-wider">
+                      <IconCpu />
+                      NEURAL CORE_V2.1
+                    </h2>
+                    <p className="text-xs text-green-600 mt-1 uppercase tracking-widest">
+                        System Intelligence Configuration // Root Access Granted
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1 rounded bg-green-900/20 border border-green-900/50">
+                    {isCoreUnlocked ? <IconUnlock /> : <IconLock />}
+                    <span className="text-xs font-bold">{isCoreUnlocked ? 'WRITE_MODE' : 'READ_ONLY_MODE'}</span>
+                  </div>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                Define the persistent persona and rules for the AI. This context is prepended to every query to ensure consistency.
-              </p>
-              <textarea
-                value={masterPrompt}
-                onChange={(e) => setMasterPrompt(e.target.value)}
-                className="w-full h-48 p-4 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none mb-4 font-mono text-sm dark:text-gray-200"
-                placeholder="e.g. You are a senior legal analyst..."
-              />
-              <div className="flex justify-end gap-3">
-                 <button 
-                   onClick={() => setMasterPrompt(DEFAULT_MASTER_PROMPT)}
-                   className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
-                 >
-                   Restore System Default
-                 </button>
-                 <button 
-                   onClick={saveMasterPrompt}
-                   className="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/30 transition-all"
-                 >
-                   Save Configuration
-                 </button>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-2 space-y-4">
+                    <div className="relative group">
+                        <div className={`absolute inset-0 bg-green-500/5 rounded-lg pointer-events-none transition-opacity ${isCoreUnlocked ? 'opacity-0' : 'opacity-100'}`}></div>
+                        <textarea
+                          value={masterPrompt}
+                          readOnly={!isCoreUnlocked}
+                          onChange={(e) => setMasterPrompt(e.target.value)}
+                          className={`w-full h-96 p-4 rounded-lg bg-black/50 border-2 font-mono text-sm resize-none focus:outline-none transition-all
+                            ${isCoreUnlocked 
+                              ? 'border-green-500 text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.1)]' 
+                              : 'border-gray-800 text-gray-500 cursor-not-allowed'
+                            }
+                          `}
+                          spellCheck={false}
+                        />
+                        {!isCoreUnlocked && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="bg-black/80 border border-gray-700 p-3 rounded text-gray-400 flex items-center gap-2 backdrop-blur-sm">
+                                <IconLock /> 
+                                <span>LOCKED: Authenticate to Edit</span>
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="p-4 rounded border border-green-900/50 bg-green-900/10">
+                        <h3 className="text-sm font-bold mb-2 text-green-400 uppercase">Directives</h3>
+                        <ul className="text-xs space-y-2 text-green-600/80 list-disc pl-4">
+                          <li>This prompt is the persistent DNA of the application.</li>
+                          <li>Changes here override default system behaviors immediately.</li>
+                          <li>Stored in browser Secure Storage (Local).</li>
+                          <li>Persists across deployments unless cache is purged.</li>
+                        </ul>
+                    </div>
+
+                    <div className="space-y-3 pt-4 border-t border-green-900/30">
+                        {!isCoreUnlocked ? (
+                          <button 
+                            onClick={() => setIsCoreUnlocked(true)}
+                            className="w-full py-3 bg-green-900/20 hover:bg-green-500 hover:text-black border border-green-500/50 text-green-500 font-bold rounded transition-all uppercase tracking-widest flex items-center justify-center gap-2 group"
+                          >
+                            <IconUnlock />
+                            Unlock Core
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={saveMasterPrompt}
+                            className="w-full py-3 bg-green-500 hover:bg-green-400 text-black font-bold rounded shadow-[0_0_15px_rgba(34,197,94,0.4)] transition-all uppercase tracking-widest flex items-center justify-center gap-2 animate-pulse"
+                          >
+                            <IconLock />
+                            Save & Lock Core
+                          </button>
+                        )}
+                        
+                        <button 
+                          onClick={() => { setShowSettings(false); setIsCoreUnlocked(false); }}
+                          className="w-full py-2 text-xs text-green-700 hover:text-green-500 uppercase tracking-wider transition-colors"
+                        >
+                          Close Terminal
+                        </button>
+                    </div>
+                    
+                    {isCoreUnlocked && (
+                        <div className="text-center pt-4">
+                            <button 
+                              onClick={() => { if(confirm("Revert to factory default prompt?")) setMasterPrompt(DEFAULT_MASTER_PROMPT); }}
+                              className="text-[10px] text-red-500/50 hover:text-red-500 hover:underline decoration-red-500/30 transition-all uppercase"
+                            >
+                              [DANGER] Restore Factory Default
+                            </button>
+                        </div>
+                    )}
+                  </div>
               </div>
             </div>
           </div>
