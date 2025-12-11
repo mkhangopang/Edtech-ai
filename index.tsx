@@ -94,11 +94,12 @@ SPECIFIC OUTPUT RULES:
 - If summarizing: Use the "Bottom Line Up Front" (BLUF) method.
 `.trim();
 
+// Versioned keys to prevent stale data conflicts
 const STORAGE_KEYS = {
-  USERS: 'edtech_users_v2', // Versioned keys to prevent stale data conflicts
-  SESSION: 'edtech_session_v2',
-  PROMPT: 'edtech_prompt_v2',
-  STATS: 'edtech_stats_v2'
+  USERS: 'edtech_users_v3', 
+  SESSION: 'edtech_session_v3',
+  PROMPT: 'edtech_prompt_v3',
+  STATS: 'edtech_stats_v3'
 };
 
 const BLOOMS_LEVELS = [
@@ -324,7 +325,7 @@ const extractTextFromDOCX = async (file: File): Promise<string> => {
 // Safe API Key retrieval (handles both node process and browser environments if bundled)
 const getApiKey = (): string | undefined => {
     try {
-        return process.env.API_KEY;
+        return process.env.API_KEY || (import.meta as any).env?.VITE_API_KEY;
     } catch (e) {
         return undefined;
     }
@@ -343,13 +344,21 @@ const getStoredUsers = (): User[] => {
 
 const saveUser = (user: User) => {
   const users = getStoredUsers();
-  users.push(user);
-  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  // Check for duplicates
+  const exists = users.findIndex(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+  if (exists === -1) {
+      users.push(user);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  }
 };
 
 const getSession = (): User | null => {
-  const sessionStr = localStorage.getItem(STORAGE_KEYS.SESSION);
-  return sessionStr ? JSON.parse(sessionStr) : null;
+  try {
+      const sessionStr = localStorage.getItem(STORAGE_KEYS.SESSION);
+      return sessionStr ? JSON.parse(sessionStr) : null;
+  } catch (e) {
+      return null;
+  }
 };
 
 const setSession = (user: User) => {
@@ -483,9 +492,14 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
         joinedDate: Date.now()
       };
       
+      // Save user first, then set session
       saveUser(newUser);
       setSession(newUser);
-      onLogin(newUser);
+      
+      // Small delay to ensure storage write before login state triggers render
+      setTimeout(() => {
+          onLogin(newUser);
+      }, 50);
     }
   };
 
@@ -1292,7 +1306,7 @@ const App = () => {
   // --- Effects ---
   
   useEffect(() => {
-    // Check for existing session
+    // Check for existing session on mount
     const session = getSession();
     if (session) {
       setCurrentUser(session);
@@ -1699,7 +1713,7 @@ Output Format Requirements:
           setMessages(prev => [...prev, {
               id: crypto.randomUUID(),
               role: 'model',
-              text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+              text: "⚠️ **System Error**: API Key is missing. Please check your environment variables (VITE_API_KEY or API_KEY).",
               timestamp: Date.now(),
               isError: true
           }]);
