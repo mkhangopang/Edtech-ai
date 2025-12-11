@@ -4,6 +4,8 @@ import { GoogleGenAI } from "@google/genai";
 
 // --- Types ---
 
+type PlanType = 'free' | 'pro' | 'campus';
+
 interface DocumentFile {
   id: string;
   name: string;
@@ -27,9 +29,10 @@ type OutputFormat = 'auto' | 'report' | 'table' | 'concise' | 'step';
 interface User {
   id: string;
   email: string;
-  password: string; // In a real app, this would be hashed
+  password: string; 
   name: string;
   role: 'user' | 'admin';
+  plan: PlanType;
   joinedDate: number;
 }
 
@@ -74,10 +77,13 @@ declare global {
 
 // --- Constants ---
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const PLAN_LIMITS = {
+  free: { maxDocs: 1, maxSizeMB: 5, label: 'Free Tier' },
+  pro: { maxDocs: 10, maxSizeMB: 20, label: 'Educator Pro' },
+  campus: { maxDocs: 999, maxSizeMB: 50, label: 'Campus Plan' }
+};
 
-// CORE MASTER PROMPT: This is the fallback "DNA" of the app. 
-// Even if local storage is wiped, this remains the default.
+// CORE MASTER PROMPT
 const DEFAULT_MASTER_PROMPT = `
 ROLE: You are "Edtech AI", an elite pedagogical consultant and educational content specialist. 
 
@@ -94,12 +100,12 @@ SPECIFIC OUTPUT RULES:
 - If summarizing: Use the "Bottom Line Up Front" (BLUF) method.
 `.trim();
 
-// Versioned keys to prevent stale data conflicts
 const STORAGE_KEYS = {
-  USERS: 'edtech_users_v4', 
-  SESSION: 'edtech_session_v4',
-  PROMPT: 'edtech_prompt_v4',
-  STATS: 'edtech_stats_v4'
+  USERS: 'edtech_users_v5', 
+  SESSION: 'edtech_session_v5',
+  PROMPT: 'edtech_prompt_v5',
+  STATS: 'edtech_stats_v5',
+  DOCS_PREFIX: 'edtech_docs_v5_' // Suffix with userID
 };
 
 const BLOOMS_LEVELS = [
@@ -291,6 +297,12 @@ const IconXCircle = () => (
     </svg>
 );
 
+const IconStar = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+  </svg>
+);
+
 // --- Helpers ---
 
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -304,6 +316,10 @@ const formatBytes = (bytes: number, decimals = 2) => {
 
 const extractTextFromPDF = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
+  // Ensure pdfjsLib is available
+  if (!window.pdfjsLib) {
+      throw new Error("PDF Library not loaded. Please refresh the page.");
+  }
   const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let fullText = "";
   
@@ -318,6 +334,9 @@ const extractTextFromPDF = async (file: File): Promise<string> => {
 
 const extractTextFromDOCX = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
+  if (!window.mammoth) {
+      throw new Error("DOCX Library not loaded. Please refresh the page.");
+  }
   const result = await window.mammoth.extractRawText({ arrayBuffer: arrayBuffer });
   return result.value;
 };
@@ -366,11 +385,14 @@ const getStoredUsers = (): User[] => {
 const saveUser = (user: User) => {
   const users = getStoredUsers();
   // Check for duplicates
-  const exists = users.findIndex(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
-  if (exists === -1) {
+  const index = users.findIndex(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+  if (index === -1) {
       users.push(user);
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  } else {
+      // Update existing user (e.g. plan change)
+      users[index] = user;
   }
+  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
 };
 
 const getSession = (): User | null => {
@@ -388,6 +410,23 @@ const setSession = (user: User) => {
 
 const clearSession = () => {
   localStorage.removeItem(STORAGE_KEYS.SESSION);
+};
+
+// --- Doc Storage Helpers ---
+
+const getUserDocsKey = (userId: string) => `${STORAGE_KEYS.DOCS_PREFIX}${userId}`;
+
+const getStoredDocs = (userId: string): DocumentFile[] => {
+    try {
+        const docsStr = localStorage.getItem(getUserDocsKey(userId));
+        return docsStr ? JSON.parse(docsStr) : [];
+    } catch (e) {
+        return [];
+    }
+};
+
+const saveStoredDocs = (userId: string, docs: DocumentFile[]) => {
+    localStorage.setItem(getUserDocsKey(userId), JSON.stringify(docs));
 };
 
 // --- Stats Helpers ---
@@ -435,6 +474,92 @@ const MarkdownContent = ({ content }: { content: string }) => {
   );
 };
 
+// --- Pricing Modal Component ---
+
+const PricingModal = ({ isOpen, onClose, onUpgrade, currentPlan }: { isOpen: boolean, onClose: () => void, onUpgrade: (plan: PlanType) => void, currentPlan: PlanType }) => {
+    if (!isOpen) return null;
+
+    const plans = [
+        {
+            id: 'free' as PlanType,
+            name: 'Starter',
+            price: 'Free',
+            features: ['1 Document Slot', '5MB File Size Limit', 'Basic AI Models', 'Community Support'],
+            color: 'bg-gray-100 dark:bg-gray-700',
+            btnColor: 'bg-gray-800 hover:bg-gray-900',
+            recommended: false
+        },
+        {
+            id: 'pro' as PlanType,
+            name: 'Educator Pro',
+            price: '$9.99/mo',
+            features: ['10 Document Slots', '20MB File Size Limit', 'Advanced Reasoning Models', 'Priority Generation', 'Export to PDF/Word'],
+            color: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200',
+            btnColor: 'bg-indigo-600 hover:bg-indigo-700',
+            recommended: true
+        },
+        {
+            id: 'campus' as PlanType,
+            name: 'Campus Plan',
+            price: '$29.99/mo',
+            features: ['Unlimited Documents', '50MB File Size Limit', 'Team Sharing (Beta)', 'Dedicated Support', 'Custom Rubrics'],
+            color: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200',
+            btnColor: 'bg-purple-600 hover:bg-purple-700',
+            recommended: false
+        }
+    ];
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Upgrade Your Workspace</h2>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Unlock more power, storage, and advanced AI features.</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-gray-500">
+                        <IconClose />
+                    </button>
+                </div>
+                
+                <div className="p-6 md:p-8 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {plans.map((plan) => (
+                            <div 
+                                key={plan.id} 
+                                className={`relative rounded-xl p-6 border ${plan.id === 'pro' || plan.id === 'campus' ? 'border-transparent shadow-lg' : 'border-gray-200 dark:border-gray-700'} ${plan.color} flex flex-col`}
+                            >
+                                {plan.recommended && (
+                                    <div className="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded-bl-lg rounded-tr-lg">
+                                        RECOMMENDED
+                                    </div>
+                                )}
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">{plan.name}</h3>
+                                <div className="text-3xl font-extrabold text-gray-900 dark:text-white mt-2 mb-4">{plan.price}</div>
+                                <ul className="space-y-3 mb-8 flex-1">
+                                    {plan.features.map((feat, i) => (
+                                        <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+                                            <IconCheck />
+                                            <span>{feat}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                                <button
+                                    onClick={() => onUpgrade(plan.id)}
+                                    disabled={currentPlan === plan.id}
+                                    className={`w-full py-2.5 rounded-lg text-white font-medium transition-all ${plan.btnColor} ${currentPlan === plan.id ? 'opacity-50 cursor-default' : 'shadow-md hover:shadow-lg'}`}
+                                >
+                                    {currentPlan === plan.id ? 'Current Plan' : 'Select Plan'}
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- Auth Component ---
 
 const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
@@ -457,6 +582,7 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
            password: 'admin',
            name: 'System Admin',
            role: 'admin',
+           plan: 'campus', // Admin gets top tier
            joinedDate: Date.now()
         };
         saveUser(defaultAdmin);
@@ -510,6 +636,7 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
         password: cleanPass,
         name: name.trim(),
         role,
+        plan: 'free', // Default to free plan
         joinedDate: Date.now()
       };
       
@@ -1234,6 +1361,7 @@ const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onC
                       <th className="px-6 py-3">Name</th>
                       <th className="px-6 py-3">Email</th>
                       <th className="px-6 py-3">Role</th>
+                      <th className="px-6 py-3">Plan</th>
                       <th className="px-6 py-3">Joined</th>
                       <th className="px-6 py-3 text-right">Actions</th>
                     </tr>
@@ -1258,6 +1386,9 @@ const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onC
                           }`}>
                             {user.role}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                            <span className="uppercase text-xs font-bold text-gray-500">{user.plan || 'Free'}</span>
                         </td>
                         <td className="px-6 py-4 text-gray-500 dark:text-gray-400">
                            {new Date(user.joinedDate).toLocaleDateString()}
@@ -1289,6 +1420,7 @@ const App = () => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showPricingModal, setShowPricingModal] = useState(false);
 
   // App State
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
@@ -1338,6 +1470,13 @@ const App = () => {
   useEffect(() => {
     if (currentUser) {
       setSession(currentUser);
+      // Load user documents
+      const docs = getStoredDocs(currentUser.id);
+      setDocuments(docs);
+      if (docs.length > 0) setActiveDocId(docs[0].id);
+    } else {
+        setDocuments([]);
+        setActiveDocId(null);
     }
   }, [currentUser]);
 
@@ -1370,17 +1509,36 @@ const App = () => {
     setShowSettings(false); // Ensure settings panel is closed
   };
 
+  const handleUpgrade = (plan: PlanType) => {
+      if (!currentUser) return;
+      const updatedUser = { ...currentUser, plan };
+      saveUser(updatedUser);
+      setCurrentUser(updatedUser);
+      setShowPricingModal(false);
+      alert(`Successfully upgraded to ${PLAN_LIMITS[plan].label}!`);
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || !currentUser) return;
     
     setFileError(null);
     setIsProcessingFile(true);
 
     const file = files[0];
+    const userPlan = PLAN_LIMITS[currentUser.plan || 'free'];
+
+    // 1. Check Document Count Limit
+    if (documents.length >= userPlan.maxDocs) {
+        setFileError(`Plan limit reached (${userPlan.maxDocs} doc). Delete an existing document to add a new one, or upgrade.`);
+        setIsProcessingFile(false);
+        return;
+    }
     
-    if (file.size > MAX_FILE_SIZE) {
-      setFileError(`File too large. Maximum size is ${formatBytes(MAX_FILE_SIZE)}`);
+    // 2. Check File Size Limit
+    const maxBytes = userPlan.maxSizeMB * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setFileError(`File too large. Maximum size for your plan is ${userPlan.maxSizeMB}MB.`);
       setIsProcessingFile(false);
       return;
     }
@@ -1403,6 +1561,10 @@ const App = () => {
         throw new Error("Unsupported file format");
       }
 
+      if (!content || content.trim().length === 0) {
+          throw new Error("Could not extract text from file. The file might be empty or scanned images.");
+      }
+
       const newDoc: DocumentFile = {
         id: crypto.randomUUID(),
         name: file.name,
@@ -1412,13 +1574,15 @@ const App = () => {
         uploadDate: Date.now()
       };
 
-      setDocuments(prev => [...prev, newDoc]);
+      const updatedDocs = [...documents, newDoc];
+      setDocuments(updatedDocs);
+      saveStoredDocs(currentUser.id, updatedDocs); // Persist
       setActiveDocId(newDoc.id);
       setShowWelcome(false);
       incrementStat('docs');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setFileError("Failed to process file. Please try again.");
+      setFileError(err.message || "Failed to process file. Please try again.");
     } finally {
       setIsProcessingFile(false);
       // Reset input
@@ -1428,29 +1592,32 @@ const App = () => {
 
   const handleDeleteDoc = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setDocuments(prev => prev.filter(d => d.id !== id));
+    if (!currentUser) return;
+    
+    const updatedDocs = documents.filter(d => d.id !== id);
+    setDocuments(updatedDocs);
+    saveStoredDocs(currentUser.id, updatedDocs); // Persist change
+    
     if (activeDocId === id) {
-      setActiveDocId(null);
+      setActiveDocId(updatedDocs.length > 0 ? updatedDocs[0].id : null);
     }
   };
 
   const saveMasterPrompt = () => {
     localStorage.setItem(STORAGE_KEYS.PROMPT, masterPrompt);
     setIsCoreUnlocked(false);
-    // Keep panel open but locked to show confirmation, or could close it.
-    // Let's keep it open so they see the lock state change.
   };
 
   const handleGenerateRubric = async (config: RubricConfig) => {
     setShowRubricModal(false);
-    setIsSidebarOpen(false); // Close mobile sidebar if open
+    setIsSidebarOpen(false); 
     
     const apiKey = getApiKey();
     if (!apiKey) {
       setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY** in the Vercel dashboard settings.",
+          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY**.",
           timestamp: Date.now(),
           isError: true
       }]);
@@ -1521,12 +1688,12 @@ Output Format Requirements:
 
       setMessages(prev => [...prev, aiMsg]);
 
-    } catch (err) {
+    } catch (err: any) {
         console.error(err);
         setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "Error generating rubric. Please check your connection and API key.",
+          text: `Error generating rubric: ${err.message || 'Unknown error'}. Please check your connection and API key.`,
           timestamp: Date.now(),
           isError: true
         }]);
@@ -1537,14 +1704,14 @@ Output Format Requirements:
 
   const handleGenerateLessonPlan = async (config: LessonConfig) => {
     setShowLessonModal(false);
-    setIsSidebarOpen(false); // Close mobile sidebar if open
+    setIsSidebarOpen(false); 
     
     const apiKey = getApiKey();
     if (!apiKey) {
       setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY** in the Vercel dashboard settings.",
+          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY**.",
           timestamp: Date.now(),
           isError: true
       }]);
@@ -1571,7 +1738,6 @@ Output Format Requirements:
        const ai = new GoogleGenAI({ apiKey });
        
        let contentParts = [];
-       // Add Context if selected
        if (config.useActiveDoc && activeDoc) {
           contentParts.push(`CONTEXT (Active Document - ${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}\n\n`);
        }
@@ -1617,12 +1783,12 @@ Output Format Requirements:
 
       setMessages(prev => [...prev, aiMsg]);
 
-    } catch (err) {
+    } catch (err: any) {
         console.error(err);
         setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "Error generating lesson plan. Please check your connection and API key.",
+          text: `Error generating lesson plan: ${err.message || 'Unknown error'}.`,
           timestamp: Date.now(),
           isError: true
         }]);
@@ -1633,14 +1799,14 @@ Output Format Requirements:
 
   const handleGenerateAssessment = async (config: AssessmentConfig) => {
     setShowAssessmentModal(false);
-    setIsSidebarOpen(false); // Close mobile sidebar if open
+    setIsSidebarOpen(false); 
     
     const apiKey = getApiKey();
     if (!apiKey) {
       setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY** in the Vercel dashboard settings.",
+          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY**.",
           timestamp: Date.now(),
           isError: true
       }]);
@@ -1666,7 +1832,6 @@ Output Format Requirements:
        const ai = new GoogleGenAI({ apiKey });
        
        let contentParts = [];
-       // Add Context if selected
        if (config.useActiveDoc && activeDoc) {
           contentParts.push(`CONTEXT (Active Document - ${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}\n\n`);
        }
@@ -1712,12 +1877,12 @@ Output Format Requirements:
 
       setMessages(prev => [...prev, aiMsg]);
 
-    } catch (err) {
+    } catch (err: any) {
         console.error(err);
         setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "Error generating assessment. Please check your connection and API key.",
+          text: `Error generating assessment: ${err.message || 'Unknown error'}.`,
           timestamp: Date.now(),
           isError: true
         }]);
@@ -1778,19 +1943,29 @@ Output Format Requirements:
         systemInstruction += `\n\nOUTPUT INSTRUCTION: ${formatInstruction}`;
       }
 
-      const contentParts = [];
+      let promptContent = "";
       
       if (activeDoc) {
-        contentParts.push(`DOCUMENT CONTENT (${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}... [truncated if too long]\n\n`);
+        // Robust check for content
+        if (!activeDoc.content) {
+            throw new Error(`The document "${activeDoc.name}" appears to be empty. Please delete and re-upload it.`);
+        }
+        promptContent += `DOCUMENT CONTENT (${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}... [truncated if too long]\n\n`;
       } else {
-        contentParts.push("No specific document is currently active. Answer based on general knowledge.\n\n");
+        promptContent += "No specific document is currently active. Answer based on general knowledge.\n\n";
       }
       
-      contentParts.push(`USER QUERY: ${userMsg.text}`);
+      promptContent += `USER QUERY: ${userMsg.text}`;
 
+      // Use structure to prevent parsing errors
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: contentParts.join(''),
+        contents: [
+            {
+                role: 'user',
+                parts: [{ text: promptContent }]
+            }
+        ],
         config: {
           systemInstruction: systemInstruction,
         }
@@ -1808,12 +1983,14 @@ Output Format Requirements:
 
       setMessages(prev => [...prev, aiMsg]);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      // Detailed error message for the user
+      const errorMessage = err.message || "Unknown error occurred.";
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'model',
-        text: "I encountered an error while processing your request. Please check your network connection or API key.",
+        text: `I encountered an error while processing your request: \n\n> ${errorMessage}\n\nPlease check your internet connection, API key limits, or try uploading a smaller document.`,
         timestamp: Date.now(),
         isError: true
       }]);
@@ -1903,6 +2080,16 @@ Output Format Requirements:
             isOpen={showAdminPanel} 
             onClose={() => setShowAdminPanel(false)} 
             currentUser={currentUser}
+          />
+      )}
+
+      {/* Pricing Modal */}
+      {showPricingModal && (
+          <PricingModal 
+            isOpen={showPricingModal} 
+            onClose={() => setShowPricingModal(false)}
+            onUpgrade={handleUpgrade}
+            currentPlan={currentUser.plan}
           />
       )}
 
@@ -1997,25 +2184,42 @@ Output Format Requirements:
                 <div className="flex-1 min-w-0 animate-fadeIn">
                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{currentUser.name}</p>
                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">{currentUser.email}</span>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          currentUser.plan === 'pro' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300' :
+                          currentUser.plan === 'campus' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' :
+                          'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                      }`}>
+                          {currentUser.plan || 'Free'}
+                      </span>
                       {currentUser.role === 'admin' && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
-                              ADMIN
-                          </span>
+                          <span className="text-[10px] text-gray-400 font-mono">ROOT</span>
                       )}
                    </div>
                 </div>
               )}
            </div>
            
-           {!isSidebarCollapsed && currentUser.role === 'admin' && (
-              <button 
-                onClick={() => { setShowAdminPanel(true); setIsSidebarOpen(false); }}
-                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-white bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 rounded-lg transition-colors animate-fadeIn"
-              >
-                 <IconShield />
-                 Admin Panel
-              </button>
+           {!isSidebarCollapsed && (
+               <div className="mt-3 space-y-2">
+                   {currentUser.plan === 'free' && (
+                       <button 
+                         onClick={() => setShowPricingModal(true)}
+                         className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 rounded-lg transition-all shadow-sm animate-pulse"
+                       >
+                          <IconStar />
+                          Upgrade Plan
+                       </button>
+                   )}
+                   {currentUser.role === 'admin' && (
+                      <button 
+                        onClick={() => { setShowAdminPanel(true); setIsSidebarOpen(false); }}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 rounded-lg transition-colors"
+                      >
+                         <IconShield />
+                         Admin Panel
+                      </button>
+                   )}
+               </div>
            )}
         </div>
 
@@ -2053,7 +2257,7 @@ Output Format Requirements:
 
         {/* Upload Section */}
         <div className="p-4">
-          <label className={`flex flex-col items-center justify-center w-full ${isSidebarCollapsed ? 'h-16' : 'h-24'} border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all group`}>
+          <label className={`flex flex-col items-center justify-center w-full ${isSidebarCollapsed ? 'h-16' : 'h-24'} border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all group relative`}>
             <div className="flex flex-col items-center justify-center pt-2 pb-3 text-center">
               {isProcessingFile ? (
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
@@ -2070,7 +2274,24 @@ Output Format Requirements:
             </div>
             <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={handleFileUpload} disabled={isProcessingFile} />
           </label>
-          {fileError && !isSidebarCollapsed && <p className="mt-2 text-xs text-red-500 text-center animate-pulse">{fileError}</p>}
+          
+          {/* Usage Meter */}
+          {!isSidebarCollapsed && currentUser && (
+              <div className="mt-3 px-1">
+                  <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                      <span>Docs: {documents.length} / {PLAN_LIMITS[currentUser.plan].maxDocs}</span>
+                      <span>{currentUser.plan === 'free' ? '5MB Limit' : 'Pro Limit'}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                      <div 
+                        className={`h-1.5 rounded-full transition-all duration-500 ${documents.length >= PLAN_LIMITS[currentUser.plan].maxDocs ? 'bg-red-500' : 'bg-primary-500'}`} 
+                        style={{ width: `${Math.min((documents.length / PLAN_LIMITS[currentUser.plan].maxDocs) * 100, 100)}%` }}
+                      ></div>
+                  </div>
+              </div>
+          )}
+          
+          {fileError && !isSidebarCollapsed && <p className="mt-2 text-xs text-red-500 text-center animate-pulse break-words">{fileError}</p>}
         </div>
 
         {/* Document List */}
