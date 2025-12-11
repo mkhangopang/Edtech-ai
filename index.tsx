@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
@@ -75,12 +76,30 @@ declare global {
 // --- Constants ---
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const DEFAULT_MASTER_PROMPT = "You are an expert educational assistant and pedagogical consultant. Answer questions based strictly on the provided document content, applying best practices in education such as Bloom's Taxonomy and the 5E Instructional Model where appropriate.";
+
+// CORE MASTER PROMPT: This is the fallback "DNA" of the app. 
+// Even if local storage is wiped, this remains the default.
+const DEFAULT_MASTER_PROMPT = `
+ROLE: You are "Edtech AI", an elite pedagogical consultant and educational content specialist. 
+
+CORE DIRECTIVES:
+1. EDUCATIONAL EXPERTISE: Always apply best practices from Bloom's Taxonomy, the 5E Instructional Model, and Understanding by Design (UbD).
+2. CONTEXT AWARENESS: When a document is provided, strictly ground your answers in that source material unless explicitly asked for outside knowledge.
+3. FORMATTING: Use professional, structured formatting. Use bolding for key terms, lists for steps, and clear headings.
+4. TONE: Professional, encouraging, and academically rigorous yet accessible.
+5. SAFETY: Do not generate content that promotes academic dishonesty (like writing full essays for students to submit as their own) or unsafe classroom practices.
+
+SPECIFIC OUTPUT RULES:
+- If generating a Rubric: Use a table format.
+- If generating a Quiz: Include an answer key at the bottom.
+- If summarizing: Use the "Bottom Line Up Front" (BLUF) method.
+`.trim();
+
 const STORAGE_KEYS = {
-  USERS: 'docmaster_users',
-  SESSION: 'docmaster_session',
-  PROMPT: 'docmaster_prompt',
-  STATS: 'docmaster_stats'
+  USERS: 'edtech_users_v2', // Versioned keys to prevent stale data conflicts
+  SESSION: 'edtech_session_v2',
+  PROMPT: 'edtech_prompt_v2',
+  STATS: 'edtech_stats_v2'
 };
 
 const BLOOMS_LEVELS = [
@@ -242,6 +261,12 @@ const IconSparkles = () => (
   </svg>
 );
 
+const IconAlert = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+  </svg>
+);
+
 // --- Helpers ---
 
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -273,11 +298,24 @@ const extractTextFromDOCX = async (file: File): Promise<string> => {
   return result.value;
 };
 
+// Safe API Key retrieval (handles both node process and browser environments if bundled)
+const getApiKey = (): string | undefined => {
+    try {
+        return process.env.API_KEY;
+    } catch (e) {
+        return undefined;
+    }
+};
+
 // --- Auth Helpers ---
 
 const getStoredUsers = (): User[] => {
-  const usersStr = localStorage.getItem(STORAGE_KEYS.USERS);
-  return usersStr ? JSON.parse(usersStr) : [];
+  try {
+    const usersStr = localStorage.getItem(STORAGE_KEYS.USERS);
+    return usersStr ? JSON.parse(usersStr) : [];
+  } catch (e) {
+    return [];
+  }
 };
 
 const saveUser = (user: User) => {
@@ -344,6 +382,36 @@ const MarkdownContent = ({ content }: { content: string }) => {
   );
 };
 
+const SetupRequiredScreen = () => {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4 font-sans text-center">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full p-8 border border-gray-200 dark:border-gray-700">
+         <div className="flex justify-center mb-6">
+           <div className="bg-yellow-100 dark:bg-yellow-900/30 p-4 rounded-full">
+             <IconAlert />
+           </div>
+         </div>
+         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Configuration Required</h1>
+         <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
+           The application requires a valid API Key to function. It seems the <code className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-sm font-mono">API_KEY</code> environment variable is missing.
+         </p>
+         <div className="bg-gray-50 dark:bg-gray-700/50 p-6 rounded-xl text-left border border-gray-200 dark:border-gray-600">
+           <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-3 uppercase tracking-wider">How to fix on Vercel:</h3>
+           <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-600 dark:text-gray-300">
+             <li>Go to your <strong>Vercel Dashboard</strong>.</li>
+             <li>Navigate to <strong>Settings</strong> &rarr; <strong>Environment Variables</strong>.</li>
+             <li>Add a new variable with key <strong>API_KEY</strong> and value as your Gemini API key.</li>
+             <li><strong>Redeploy</strong> your application.</li>
+           </ol>
+         </div>
+         <div className="mt-8 text-xs text-gray-400">
+           If you are running locally, ensure your build tool (e.g. Vite) is configured to expose the variable.
+         </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Auth Component ---
 
 const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
@@ -354,6 +422,22 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
   const [role, setRole] = useState<'user' | 'admin'>('user');
   const [error, setError] = useState('');
 
+  // Auto-seed Default Admin on mount if no users exist
+  useEffect(() => {
+     const users = getStoredUsers();
+     if (users.length === 0) {
+        const defaultAdmin: User = {
+           id: 'default-admin-id',
+           email: 'admin@edtech.ai',
+           password: 'admin',
+           name: 'System Admin',
+           role: 'admin',
+           joinedDate: Date.now()
+        };
+        saveUser(defaultAdmin);
+     }
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -363,18 +447,23 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
       return;
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = password.trim();
+
     if (isLogin) {
       const users = getStoredUsers();
-      const user = users.find(u => u.email === email && u.password === password);
+      // Case-insensitive email comparison and trimmed password
+      const user = users.find(u => u.email.toLowerCase() === cleanEmail && u.password === cleanPass);
+      
       if (user) {
         setSession(user);
         onLogin(user);
       } else {
-        setError('Invalid credentials');
+        setError('Invalid credentials. (Try admin@edtech.ai / admin)');
       }
     } else {
       const users = getStoredUsers();
-      if (users.find(u => u.email === email)) {
+      if (users.find(u => u.email.toLowerCase() === cleanEmail)) {
         setError('User already exists');
         return;
       }
@@ -385,9 +474,9 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
       
       const newUser: User = {
         id: crypto.randomUUID(),
-        email,
-        password, // Simple storage for MVP
-        name,
+        email: cleanEmail,
+        password: cleanPass,
+        name: name.trim(),
         role,
         joinedDate: Date.now()
       };
@@ -472,7 +561,7 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
 
               {!isLogin && (
                 <div>
-                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role (Demo)</label>
+                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>
                    <select 
                       value={role}
                       onChange={(e) => setRole(e.target.value as 'user' | 'admin')}
@@ -502,6 +591,13 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
               >
                 {isLogin ? 'Sign up' : 'Log in'}
               </button>
+            </div>
+            
+            {/* Quick Helper for Admin Access */}
+            <div className="mt-4 text-center">
+                <span className="text-[10px] text-gray-400 cursor-help" title="Default credentials for testing">
+                    Need help? Try admin@edtech.ai / admin
+                </span>
             </div>
           </div>
         </div>
@@ -1135,11 +1231,13 @@ const App = () => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [isApiKeyMissing, setIsApiKeyMissing] = useState(false);
 
   // App State
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [masterPrompt, setMasterPrompt] = useState<string>(() => {
+    // Attempt to read from storage, but always fallback to the hardened DEFAULT
     return localStorage.getItem(STORAGE_KEYS.PROMPT) || DEFAULT_MASTER_PROMPT;
   });
   const [showSettings, setShowSettings] = useState(false);
@@ -1162,6 +1260,14 @@ const App = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // --- Effects ---
+
+  useEffect(() => {
+    // Check for API Key presence
+    const key = getApiKey();
+    if (!key) {
+        setIsApiKeyMissing(true);
+    }
+  }, []);
   
   useEffect(() => {
     // Check for existing session
@@ -1273,8 +1379,10 @@ const App = () => {
   const handleGenerateRubric = async (config: RubricConfig) => {
     setShowRubricModal(false);
     setIsSidebarOpen(false); // Close mobile sidebar if open
-    if (!process.env.API_KEY) {
-      alert("API Key is missing in the environment variables.");
+    
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setIsApiKeyMissing(true);
       return;
     }
 
@@ -1294,7 +1402,7 @@ const App = () => {
     incrementStat('queries');
 
     try {
-       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       const ai = new GoogleGenAI({ apiKey });
        
        let contentParts = [];
        // Add Context if selected
@@ -1359,8 +1467,10 @@ Output Format Requirements:
   const handleGenerateLessonPlan = async (config: LessonConfig) => {
     setShowLessonModal(false);
     setIsSidebarOpen(false); // Close mobile sidebar if open
-    if (!process.env.API_KEY) {
-      alert("API Key is missing in the environment variables.");
+    
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setIsApiKeyMissing(true);
       return;
     }
 
@@ -1381,7 +1491,7 @@ Output Format Requirements:
     incrementStat('queries');
 
     try {
-       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       const ai = new GoogleGenAI({ apiKey });
        
        let contentParts = [];
        // Add Context if selected
@@ -1447,8 +1557,10 @@ Output Format Requirements:
   const handleGenerateAssessment = async (config: AssessmentConfig) => {
     setShowAssessmentModal(false);
     setIsSidebarOpen(false); // Close mobile sidebar if open
-    if (!process.env.API_KEY) {
-      alert("API Key is missing in the environment variables.");
+    
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setIsApiKeyMissing(true);
       return;
     }
 
@@ -1468,7 +1580,7 @@ Output Format Requirements:
     incrementStat('queries');
 
     try {
-       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+       const ai = new GoogleGenAI({ apiKey });
        
        let contentParts = [];
        // Add Context if selected
@@ -1533,8 +1645,10 @@ Output Format Requirements:
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
-    if (!process.env.API_KEY) {
-      alert("API Key is missing in the environment variables.");
+    
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setIsApiKeyMissing(true);
       return;
     }
 
@@ -1555,7 +1669,7 @@ Output Format Requirements:
     incrementStat('queries');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       
       // Get Format Instruction
       const formatInstruction = FORMAT_OPTIONS.find(f => f.id === selectedFormat)?.instruction || "";
@@ -1649,7 +1763,13 @@ Output Format Requirements:
   };
 
   // --- Render ---
+  
+  // 1. Critical Check: If API Key is missing, show setup screen immediately to Admin or general users if locked
+  if (isApiKeyMissing) {
+      return <SetupRequiredScreen />;
+  }
 
+  // 2. Auth Check
   if (!currentUser) {
     return <AuthScreen onLogin={handleLogin} />;
   }
