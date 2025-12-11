@@ -1,0 +1,1161 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
+import { GoogleGenAI } from "@google/genai";
+
+// --- Types ---
+
+interface DocumentFile {
+  id: string;
+  name: string;
+  type: 'pdf' | 'docx' | 'txt';
+  content: string; // Extracted text
+  size: number;
+  uploadDate: number;
+}
+
+interface Message {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  timestamp: number;
+  isError?: boolean;
+  format?: OutputFormat;
+}
+
+type OutputFormat = 'auto' | 'report' | 'table' | 'concise' | 'step';
+
+interface User {
+  id: string;
+  email: string;
+  password: string; // In a real app, this would be hashed
+  name: string;
+  role: 'user' | 'admin';
+  joinedDate: number;
+}
+
+// Global window extensions for CDN libraries
+declare global {
+  interface Window {
+    pdfjsLib: any;
+    mammoth: any;
+    marked: any;
+    jspdf: any;
+  }
+}
+
+// --- Constants ---
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const DEFAULT_MASTER_PROMPT = "You are an expert educational assistant and pedagogical consultant. Answer questions based strictly on the provided document content, applying best practices in education such as Bloom's Taxonomy and the 5E Instructional Model where appropriate.";
+const STORAGE_KEYS = {
+  USERS: 'docmaster_users',
+  SESSION: 'docmaster_session',
+  PROMPT: 'docmaster_prompt'
+};
+
+// --- Icons (SVG) ---
+
+const IconUpload = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
+  </svg>
+);
+
+const IconFile = ({ type }: { type: string }) => {
+  let colorClass = "text-gray-400";
+  if (type === 'pdf') colorClass = "text-red-400";
+  if (type === 'docx') colorClass = "text-blue-400";
+  
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${colorClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 011.414.586l5.414 5.414a1 1 0 01.586 1.414V19a2 2 0 01-2 2z" />
+    </svg>
+  );
+};
+
+const IconTrash = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+  </svg>
+);
+
+const IconSettings = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+  </svg>
+);
+
+const IconSend = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+  </svg>
+);
+
+const IconMoon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+  </svg>
+);
+
+const IconSun = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
+  </svg>
+);
+
+const IconBot = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+  </svg>
+);
+
+const IconDownload = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+  </svg>
+);
+
+const IconCopy = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+  </svg>
+);
+
+const IconFormat = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+  </svg>
+);
+
+const IconLogout = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+  </svg>
+);
+
+const IconUser = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+  </svg>
+);
+
+const IconShield = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+  </svg>
+);
+
+// --- Helpers ---
+
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+};
+
+const extractTextFromPDF = async (file: File): Promise<string> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = "";
+  
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items.map((item: any) => item.str).join(" ");
+    fullText += pageText + "\n\n";
+  }
+  return fullText;
+};
+
+const extractTextFromDOCX = async (file: File): Promise<string> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await window.mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+  return result.value;
+};
+
+// --- Auth Helpers ---
+
+const getStoredUsers = (): User[] => {
+  const usersStr = localStorage.getItem(STORAGE_KEYS.USERS);
+  return usersStr ? JSON.parse(usersStr) : [];
+};
+
+const saveUser = (user: User) => {
+  const users = getStoredUsers();
+  users.push(user);
+  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+};
+
+const getSession = (): User | null => {
+  const sessionStr = localStorage.getItem(STORAGE_KEYS.SESSION);
+  return sessionStr ? JSON.parse(sessionStr) : null;
+};
+
+const setSession = (user: User) => {
+  localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(user));
+};
+
+const clearSession = () => {
+  localStorage.removeItem(STORAGE_KEYS.SESSION);
+};
+
+// --- Format Options ---
+
+const FORMAT_OPTIONS: { id: OutputFormat; label: string; instruction: string }[] = [
+  { id: 'auto', label: 'Auto Format', instruction: "Answer naturally based on the query." },
+  { id: 'report', label: 'Pro Report', instruction: "Format the response as a professional report. Use H1 for the main title, H2 for sections, bullet points for lists, and **bold** for key insights. Ensure the tone is formal and structured." },
+  { id: 'table', label: 'Data Table', instruction: "Present the answer primarily as a Markdown table. If there is data to compare or list, use columns and rows. Ensure headers are clear." },
+  { id: 'concise', label: 'Concise Summary', instruction: "Provide a very brief, high-level summary. Use bullet points. Keep it under 200 words if possible. Focus on the 'Bottom Line Up Front' (BLUF)." },
+  { id: 'step', label: 'Step-by-Step', instruction: "Break the answer down into a numbered step-by-step guide. Use bold numbering (e.g., **Step 1:**) and clear instructions." }
+];
+
+// --- Components ---
+
+const MarkdownContent = ({ content }: { content: string }) => {
+  const [html, setHtml] = useState('');
+
+  useEffect(() => {
+    if (window.marked) {
+      setHtml(window.marked.parse(content));
+    } else {
+      setHtml(content);
+    }
+  }, [content]);
+
+  return (
+    <div 
+      className="prose dark:prose-invert max-w-none text-sm leading-relaxed break-words"
+      dangerouslySetInnerHTML={{ __html: html }} 
+    />
+  );
+};
+
+// --- Auth Component ---
+
+const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!email || !password) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    if (isLogin) {
+      const users = getStoredUsers();
+      const user = users.find(u => u.email === email && u.password === password);
+      if (user) {
+        setSession(user);
+        onLogin(user);
+      } else {
+        setError('Invalid credentials');
+      }
+    } else {
+      const users = getStoredUsers();
+      if (users.find(u => u.email === email)) {
+        setError('User already exists');
+        return;
+      }
+      if (!name) {
+        setError('Name is required');
+        return;
+      }
+      
+      const newUser: User = {
+        id: crypto.randomUUID(),
+        email,
+        password, // Simple storage for MVP
+        name,
+        role,
+        joinedDate: Date.now()
+      };
+      
+      saveUser(newUser);
+      setSession(newUser);
+      onLogin(newUser);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4 font-sans">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl flex overflow-hidden border border-gray-200 dark:border-gray-700 min-h-[600px]">
+        {/* Left Side - Brand */}
+        <div className="w-1/2 bg-gradient-to-br from-primary-600 to-indigo-800 p-12 hidden md:flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+          <div className="relative z-10">
+            <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
+              <span className="text-2xl font-bold text-primary-600">E</span>
+            </div>
+            <h1 className="text-4xl font-bold text-white mb-4 leading-tight">
+              Unlock the power of your educational content.
+            </h1>
+            <p className="text-primary-100 text-lg">
+              Edtech AI transforms static files into interactive knowledge bases. Chat, analyze, and extract insights in seconds.
+            </p>
+          </div>
+          <div className="relative z-10">
+            <div className="flex -space-x-2 mb-4">
+              <div className="w-10 h-10 rounded-full border-2 border-primary-500 bg-gray-200"></div>
+              <div className="w-10 h-10 rounded-full border-2 border-primary-500 bg-gray-300"></div>
+              <div className="w-10 h-10 rounded-full border-2 border-primary-500 bg-gray-400"></div>
+              <div className="w-10 h-10 rounded-full border-2 border-primary-500 bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700">+2k</div>
+            </div>
+            <p className="text-sm text-primary-200">Join thousands of educators saving time today.</p>
+          </div>
+        </div>
+
+        {/* Right Side - Form */}
+        <div className="w-full md:w-1/2 p-8 md:p-12 flex flex-col justify-center bg-white dark:bg-gray-800">
+          <div className="max-w-md mx-auto w-full">
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+              {isLogin ? 'Welcome Back' : 'Create Account'}
+            </h2>
+            <p className="text-gray-500 dark:text-gray-400 mb-8">
+              {isLogin ? 'Enter your details to access your workspace.' : 'Get started with Edtech AI for free.'}
+            </p>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {!isLogin && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Name</label>
+                  <input 
+                    type="text" 
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all dark:text-white"
+                    placeholder="John Doe"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email Address</label>
+                <input 
+                  type="email" 
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all dark:text-white"
+                  placeholder="name@company.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all dark:text-white"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {!isLogin && (
+                <div>
+                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role (Demo)</label>
+                   <select 
+                      value={role}
+                      onChange={(e) => setRole(e.target.value as 'user' | 'admin')}
+                      className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all dark:text-white"
+                   >
+                     <option value="user">User</option>
+                     <option value="admin">Admin</option>
+                   </select>
+                </div>
+              )}
+
+              {error && <p className="text-red-500 text-sm">{error}</p>}
+
+              <button 
+                type="submit" 
+                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3 rounded-lg transition-all shadow-lg hover:shadow-primary-500/30"
+              >
+                {isLogin ? 'Sign In' : 'Sign Up'}
+              </button>
+            </form>
+
+            <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              {isLogin ? "Don't have an account? " : "Already have an account? "}
+              <button 
+                onClick={() => { setIsLogin(!isLogin); setError(''); }}
+                className="text-primary-600 hover:text-primary-500 font-medium hover:underline"
+              >
+                {isLogin ? 'Sign up' : 'Log in'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Admin Dashboard Component ---
+
+const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onClose: () => void, currentUser: User }) => {
+  const [users, setUsers] = useState<User[]>([]);
+  
+  useEffect(() => {
+    if (isOpen) {
+      setUsers(getStoredUsers());
+    }
+  }, [isOpen]);
+
+  const handleDeleteUser = (id: string) => {
+    if (id === currentUser.id) {
+        alert("You cannot delete yourself.");
+        return;
+    }
+    if (confirm("Are you sure you want to delete this user?")) {
+      const updatedUsers = users.filter(u => u.id !== id);
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updatedUsers));
+      setUsers(updatedUsers);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-gray-900 w-full max-w-5xl h-[80vh] rounded-2xl shadow-2xl flex flex-col border border-gray-200 dark:border-gray-700 overflow-hidden">
+        {/* Header */}
+        <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+          <div className="flex items-center gap-3">
+             <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                <IconShield />
+             </div>
+             <div>
+               <h2 className="text-xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h2>
+               <p className="text-sm text-gray-500 dark:text-gray-400">System Overview & User Management</p>
+             </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 md:p-8">
+           {/* Stats */}
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Users</h3>
+                 <div className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">{users.length}</div>
+                 <div className="mt-1 text-xs text-green-500 font-medium">+12% from last month</div>
+              </div>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Active Sessions</h3>
+                 <div className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">1</div>
+                 <div className="mt-1 text-xs text-gray-400">Current active session</div>
+              </div>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                 <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">System Status</h3>
+                 <div className="mt-2 text-3xl font-bold text-green-500">Healthy</div>
+                 <div className="mt-1 text-xs text-gray-400">All systems operational</div>
+              </div>
+           </div>
+
+           {/* User Table */}
+           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="font-semibold text-gray-900 dark:text-white">Registered Users</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-gray-50 dark:bg-gray-900/50 text-gray-500 dark:text-gray-400 uppercase font-medium">
+                    <tr>
+                      <th className="px-6 py-3">Name</th>
+                      <th className="px-6 py-3">Email</th>
+                      <th className="px-6 py-3">Role</th>
+                      <th className="px-6 py-3">Joined</th>
+                      <th className="px-6 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {users.map(user => (
+                      <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                        <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary-400 to-primary-600 flex items-center justify-center text-white font-bold text-xs uppercase">
+                                    {user.name.charAt(0)}
+                                </div>
+                                {user.name}
+                            </div>
+                        </td>
+                        <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{user.email}</td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            user.role === 'admin' 
+                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' 
+                            : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                          }`}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-gray-500 dark:text-gray-400">
+                           {new Date(user.joinedDate).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                           <button 
+                             onClick={() => handleDeleteUser(user.id)}
+                             disabled={user.id === currentUser.id}
+                             className="text-red-500 hover:text-red-700 disabled:opacity-30 disabled:cursor-not-allowed font-medium transition-colors"
+                           >
+                             Delete
+                           </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Main App Component ---
+
+const App = () => {
+  // Auth State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+
+  // App State
+  const [documents, setDocuments] = useState<DocumentFile[]>([]);
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [masterPrompt, setMasterPrompt] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEYS.PROMPT) || DEFAULT_MASTER_PROMPT;
+  });
+  const [showSettings, setShowSettings] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [showWelcome, setShowWelcome] = useState(true);
+  const [selectedFormat, setSelectedFormat] = useState<OutputFormat>('auto');
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // --- Effects ---
+  
+  useEffect(() => {
+    // Check for existing session
+    const session = getSession();
+    if (session) {
+      setCurrentUser(session);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isLoading]);
+
+  // --- Handlers ---
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    clearSession();
+    setCurrentUser(null);
+    setDocuments([]);
+    setActiveDocId(null);
+    setMessages([]);
+    setShowSettings(false); // Ensure settings panel is closed
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    
+    setFileError(null);
+    setIsProcessingFile(true);
+
+    const file = files[0];
+    
+    if (file.size > MAX_FILE_SIZE) {
+      setFileError(`File too large. Maximum size is ${formatBytes(MAX_FILE_SIZE)}`);
+      setIsProcessingFile(false);
+      return;
+    }
+
+    try {
+      const fileType = file.name.split('.').pop()?.toLowerCase();
+      let content = "";
+      let type: DocumentFile['type'] = 'txt';
+
+      if (fileType === 'pdf') {
+        type = 'pdf';
+        content = await extractTextFromPDF(file);
+      } else if (fileType === 'docx') {
+        type = 'docx';
+        content = await extractTextFromDOCX(file);
+      } else if (fileType === 'txt') {
+        type = 'txt';
+        content = await file.text();
+      } else {
+        throw new Error("Unsupported file format");
+      }
+
+      const newDoc: DocumentFile = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        type,
+        content,
+        size: file.size,
+        uploadDate: Date.now()
+      };
+
+      setDocuments(prev => [...prev, newDoc]);
+      setActiveDocId(newDoc.id);
+      setShowWelcome(false);
+    } catch (err) {
+      console.error(err);
+      setFileError("Failed to process file. Please try again.");
+    } finally {
+      setIsProcessingFile(false);
+      // Reset input
+      event.target.value = '';
+    }
+  };
+
+  const handleDeleteDoc = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDocuments(prev => prev.filter(d => d.id !== id));
+    if (activeDocId === id) {
+      setActiveDocId(null);
+    }
+  };
+
+  const saveMasterPrompt = () => {
+    localStorage.setItem(STORAGE_KEYS.PROMPT, masterPrompt);
+    setShowSettings(false);
+    // Visual feedback could be added here
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+    if (!process.env.API_KEY) {
+      alert("API Key is missing in the environment variables.");
+      return;
+    }
+
+    const activeDoc = documents.find(d => d.id === activeDocId);
+    
+    // User Message
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      text: input,
+      timestamp: Date.now()
+    };
+    
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setIsLoading(true);
+    setShowWelcome(false);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      
+      // Get Format Instruction
+      const formatInstruction = FORMAT_OPTIONS.find(f => f.id === selectedFormat)?.instruction || "";
+
+      // Construct Prompt
+      let systemInstruction = masterPrompt;
+      if (formatInstruction) {
+        systemInstruction += `\n\nOUTPUT INSTRUCTION: ${formatInstruction}`;
+      }
+
+      const contentParts = [];
+      
+      if (activeDoc) {
+        contentParts.push(`DOCUMENT CONTENT (${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}... [truncated if too long]\n\n`);
+      } else {
+        contentParts.push("No specific document is currently active. Answer based on general knowledge.\n\n");
+      }
+      
+      contentParts.push(`USER QUERY: ${userMsg.text}`);
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: contentParts.join(''),
+        config: {
+          systemInstruction: systemInstruction,
+        }
+      });
+
+      const text = response.text;
+
+      const aiMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: text,
+        timestamp: Date.now(),
+        format: selectedFormat
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+    } catch (err) {
+      console.error(err);
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: "I encountered an error while processing your request. Please check your network connection or API key.",
+        timestamp: Date.now(),
+        isError: true
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownload = (msg: Message, format: 'txt' | 'doc' | 'pdf') => {
+    if (format === 'txt') {
+        const blob = new Blob([msg.text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `response-${msg.id.slice(0,6)}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } else if (format === 'doc') {
+        const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML To Doc</title></head><body>";
+        const footer = "</body></html>";
+        // Convert Markdown to HTML for the doc (using marked)
+        const html = window.marked ? window.marked.parse(msg.text) : msg.text;
+        const sourceHTML = header + html + footer;
+        
+        const blob = new Blob(['\ufeff', sourceHTML], { type: 'application/msword' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `response-${msg.id.slice(0,6)}.doc`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } else if (format === 'pdf') {
+        // Simple PDF export using jsPDF
+        const doc = new window.jspdf.jsPDF();
+        // Split text to fit page
+        const splitText = doc.splitTextToSize(msg.text, 180);
+        doc.text(splitText, 10, 10);
+        doc.save(`response-${msg.id.slice(0,6)}.pdf`);
+    }
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    // Could add toast here
+  };
+
+  // --- Render ---
+
+  if (!currentUser) {
+    return <AuthScreen onLogin={handleLogin} />;
+  }
+
+  return (
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden font-sans text-gray-900 dark:text-gray-100 transition-colors duration-300">
+      
+      {/* Admin Panel Modal */}
+      <AdminDashboard 
+        isOpen={showAdminPanel} 
+        onClose={() => setShowAdminPanel(false)} 
+        currentUser={currentUser}
+      />
+
+      {/* Left Sidebar - Document Manager */}
+      <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col shadow-xl z-20 flex-shrink-0">
+        
+        {/* Sidebar Header */}
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+          <div className="flex items-center gap-3 mb-1">
+             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg shadow-primary-500/30">
+                E
+             </div>
+             <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">Edtech AI</h1>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium ml-11">Smart Educational Assistant</p>
+        </div>
+
+        {/* User Profile Snippet */}
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+           <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-accent-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
+                 {currentUser.name.charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                 <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{currentUser.name}</p>
+                 <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">{currentUser.email}</span>
+                    {currentUser.role === 'admin' && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                            ADMIN
+                        </span>
+                    )}
+                 </div>
+              </div>
+           </div>
+           
+           {currentUser.role === 'admin' && (
+              <button 
+                onClick={() => setShowAdminPanel(true)}
+                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-white bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 rounded-lg transition-colors"
+              >
+                 <IconShield />
+                 Admin Panel
+              </button>
+           )}
+        </div>
+
+        {/* Upload Section */}
+        <div className="p-6">
+          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all group">
+            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+              {isProcessingFile ? (
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mb-2"></div>
+              ) : (
+                <div className="text-gray-400 group-hover:text-primary-500 transition-colors mb-2">
+                   <IconUpload />
+                </div>
+              )}
+              <p className="mb-1 text-sm text-gray-500 dark:text-gray-400 font-medium group-hover:text-primary-600 dark:group-hover:text-primary-400">
+                {isProcessingFile ? 'Processing...' : 'Click to upload'}
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">PDF, DOCX, TXT (Max 10MB)</p>
+            </div>
+            <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={handleFileUpload} disabled={isProcessingFile} />
+          </label>
+          {fileError && <p className="mt-2 text-xs text-red-500 text-center animate-pulse">{fileError}</p>}
+        </div>
+
+        {/* Document List */}
+        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+          <h3 className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Your Documents</h3>
+          {documents.length === 0 ? (
+             <div className="text-center py-8 text-gray-400 text-sm italic">
+                No documents yet.
+             </div>
+          ) : (
+            documents.map(doc => (
+              <div 
+                key={doc.id}
+                onClick={() => setActiveDocId(doc.id)}
+                className={`group flex items-center p-3 rounded-xl cursor-pointer transition-all border ${
+                  activeDocId === doc.id 
+                    ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800 shadow-sm' 
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 border-transparent'
+                }`}
+              >
+                <div className="flex-shrink-0 mr-3">
+                  <IconFile type={doc.type} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium truncate ${
+                    activeDocId === doc.id ? 'text-primary-700 dark:text-primary-300' : 'text-gray-700 dark:text-gray-300'
+                  }`}>
+                    {doc.name}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {formatBytes(doc.size)} • {new Date(doc.uploadDate).toLocaleDateString()}
+                  </p>
+                </div>
+                <button 
+                  onClick={(e) => handleDeleteDoc(doc.id, e)}
+                  className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+                >
+                  <IconTrash />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+           <button 
+             onClick={handleLogout}
+             className="flex items-center justify-center w-full gap-2 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+           >
+             <IconLogout />
+             Sign Out
+           </button>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        
+        {/* Header */}
+        <header className="h-16 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-10">
+          <div className="flex items-center text-sm breadcrumbs text-gray-500">
+            <span className="font-medium text-gray-900 dark:text-white">Workspace</span>
+            <span className="mx-2">/</span>
+            {activeDocId ? (
+               <span className="text-primary-600 dark:text-primary-400 truncate max-w-xs">
+                 {documents.find(d => d.id === activeDocId)?.name}
+               </span>
+            ) : (
+               <span>General Chat</span>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2 md:space-x-4">
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Toggle Theme"
+            >
+              {isDarkMode ? <IconSun /> : <IconMoon />}
+            </button>
+            
+            {/* Master Prompt Settings - ADMIN ONLY */}
+            {currentUser?.role === 'admin' && (
+              <>
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-700 mx-2"></div>
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${
+                    showSettings 
+                      ? 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400' 
+                      : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                  title="Master Prompt Settings"
+                >
+                  <IconSettings />
+                  <span className="hidden md:inline text-sm font-medium">Master Prompt</span>
+                </button>
+              </>
+            )}
+          </div>
+        </header>
+
+        {/* Master Prompt Settings Panel - ADMIN ONLY */}
+        {showSettings && currentUser?.role === 'admin' && (
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 shadow-lg animate-slideDown absolute top-16 left-0 right-0 z-20">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex justify-between items-center mb-4">
+                 <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                   <div className="p-1.5 bg-primary-100 dark:bg-primary-900/50 rounded text-primary-600">
+                     <IconBot />
+                   </div>
+                   Master Prompt Configuration
+                 </h2>
+                 <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-md font-medium">Admin Access Only</span>
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Define the persistent persona and rules for the AI. This context is prepended to every query to ensure consistency.
+              </p>
+              <textarea
+                value={masterPrompt}
+                onChange={(e) => setMasterPrompt(e.target.value)}
+                className="w-full h-32 p-4 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none mb-4 font-mono text-sm dark:text-gray-200"
+                placeholder="e.g. You are a senior legal analyst..."
+              />
+              <div className="flex justify-end gap-3">
+                 <button 
+                   onClick={() => setMasterPrompt(DEFAULT_MASTER_PROMPT)}
+                   className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                 >
+                   Reset Default
+                 </button>
+                 <button 
+                   onClick={saveMasterPrompt}
+                   className="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/30 transition-all"
+                 >
+                   Save Configuration
+                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Chat Area */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth" id="chat-container">
+          <div className="max-w-4xl mx-auto space-y-6">
+            
+            {/* Welcome State */}
+            {showWelcome && (
+              <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+                <div className="w-20 h-20 bg-gradient-to-tr from-primary-100 to-indigo-100 dark:from-primary-900/20 dark:to-indigo-900/20 rounded-3xl flex items-center justify-center mb-6 shadow-xl">
+                   <IconBot />
+                </div>
+                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">
+                  How can I help you today?
+                </h2>
+                <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto text-lg leading-relaxed">
+                  Upload a lesson plan, rubric, or document to the left, or just ask me anything about pedagogy or curriculum design.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-10 w-full max-w-2xl">
+                   {[
+                      'Create a 5E Lesson Plan', 
+                      'Generate Bloom\'s Taxonomy questions', 
+                      'Draft a rubric for this assignment', 
+                      'Suggest a Master Prompt for a Math Tutor'
+                   ].map((hint) => (
+                      <button 
+                        key={hint}
+                        onClick={() => { setInput(hint); }}
+                        className="p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-primary-400 dark:hover:border-primary-500 hover:shadow-md transition-all text-left text-sm font-medium text-gray-600 dark:text-gray-300"
+                      >
+                        {hint} →
+                      </button>
+                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Messages */}
+            {messages.map((msg) => (
+              <div 
+                key={msg.id} 
+                className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
+              >
+                {msg.role === 'model' && (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center flex-shrink-0 mt-1 shadow-md">
+                    <span className="text-white text-xs font-bold">AI</span>
+                  </div>
+                )}
+                
+                <div 
+                  className={`max-w-[85%] rounded-2xl p-5 shadow-sm ${
+                    msg.role === 'user' 
+                      ? 'bg-primary-600 text-white rounded-tr-sm' 
+                      : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-tl-sm text-gray-800 dark:text-gray-100'
+                  } ${msg.isError ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : ''}`}
+                >
+                  <div className="markdown-body">
+                    {msg.role === 'user' ? (
+                       <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                    ) : (
+                       <MarkdownContent content={msg.text} />
+                    )}
+                  </div>
+                  
+                  {/* Message Actions */}
+                  {msg.role === 'model' && !msg.isError && (
+                    <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                      <button 
+                        onClick={() => handleCopy(msg.text)}
+                        className="text-xs flex items-center gap-1 text-gray-400 hover:text-primary-500 transition-colors px-2 py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
+                      >
+                        <IconCopy /> Copy
+                      </button>
+                      <div className="h-3 w-px bg-gray-200 dark:bg-gray-700"></div>
+                      <span className="text-xs text-gray-400 px-1">Download as:</span>
+                      <button onClick={() => handleDownload(msg, 'doc')} className="text-xs font-medium text-blue-500 hover:underline">DOC</button>
+                      <button onClick={() => handleDownload(msg, 'pdf')} className="text-xs font-medium text-red-500 hover:underline">PDF</button>
+                      <button onClick={() => handleDownload(msg, 'txt')} className="text-xs font-medium text-gray-500 hover:underline">TXT</button>
+                    </div>
+                  )}
+                </div>
+
+                {msg.role === 'user' && (
+                   <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0 mt-1">
+                      <IconUser />
+                   </div>
+                )}
+              </div>
+            ))}
+            
+            {isLoading && (
+              <div className="flex gap-4 justify-start animate-pulse">
+                 <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0"></div>
+                 <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 shadow-sm flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-75"></div>
+                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-150"></div>
+                 </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* Input Area */}
+        <div className="p-4 md:p-6 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700">
+           <div className="max-w-4xl mx-auto">
+             {/* Format Selection Toolbar */}
+             <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
+               {FORMAT_OPTIONS.map(opt => (
+                 <button
+                   key={opt.id}
+                   onClick={() => setSelectedFormat(opt.id)}
+                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                      selectedFormat === opt.id
+                      ? 'bg-primary-600 text-white shadow-md shadow-primary-500/20'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 border border-transparent hover:border-gray-300 dark:hover:border-gray-600'
+                   }`}
+                 >
+                   {selectedFormat === opt.id && <IconFormat />}
+                   {opt.label}
+                 </button>
+               ))}
+             </div>
+
+             <div className="relative flex items-end gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-transparent transition-all">
+                <textarea 
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Type a message..."
+                  className="w-full max-h-32 bg-transparent border-none focus:ring-0 resize-none py-3 px-3 text-sm dark:text-white placeholder-gray-400"
+                  rows={1}
+                />
+                <button 
+                  onClick={handleSend}
+                  disabled={!input.trim() || isLoading}
+                  className="p-3 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-xl transition-all shadow-md disabled:shadow-none mb-0.5"
+                >
+                  {isLoading ? (
+                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                     <IconSend />
+                  )}
+                </button>
+             </div>
+             <p className="text-center text-xs text-gray-400 mt-2">
+               AI can make mistakes. Verify important information.
+             </p>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const root = createRoot(document.getElementById('root')!);
+root.render(<App />);
