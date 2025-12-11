@@ -267,6 +267,12 @@ const IconAlert = () => (
   </svg>
 );
 
+const IconRefresh = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    </svg>
+);
+
 // --- Helpers ---
 
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -425,7 +431,9 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
   // Auto-seed Default Admin on mount if no users exist
   useEffect(() => {
      const users = getStoredUsers();
-     if (users.length === 0) {
+     const adminExists = users.some(u => u.email === 'admin@edtech.ai');
+     
+     if (!adminExists) {
         const defaultAdmin: User = {
            id: 'default-admin-id',
            email: 'admin@edtech.ai',
@@ -437,6 +445,13 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
         saveUser(defaultAdmin);
      }
   }, []);
+
+  const handleResetData = () => {
+      if (confirm("FACTORY RESET WARNING:\n\nThis will delete ALL local accounts, documents, and settings. You will need to sign in again. Use this only if the app is stuck.\n\nContinue?")) {
+          localStorage.clear();
+          window.location.reload();
+      }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -459,7 +474,7 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
         setSession(user);
         onLogin(user);
       } else {
-        setError('Invalid credentials. (Try admin@edtech.ai / admin)');
+        setError('Invalid credentials. (Check capitalization or try admin@edtech.ai / admin)');
       }
     } else {
       const users = getStoredUsers();
@@ -488,7 +503,7 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4 font-sans">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4 font-sans relative">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl flex overflow-hidden border border-gray-200 dark:border-gray-700 min-h-[600px]">
         {/* Left Side - Brand */}
         <div className="w-1/2 bg-gradient-to-br from-primary-600 to-indigo-800 p-12 hidden md:flex flex-col justify-between relative overflow-hidden">
@@ -516,7 +531,7 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
         </div>
 
         {/* Right Side - Form */}
-        <div className="w-full md:w-1/2 p-8 md:p-12 flex flex-col justify-center bg-white dark:bg-gray-800">
+        <div className="w-full md:w-1/2 p-8 md:p-12 flex flex-col justify-center bg-white dark:bg-gray-800 relative">
           <div className="max-w-md mx-auto w-full">
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
               {isLogin ? 'Welcome Back' : 'Create Account'}
@@ -598,6 +613,13 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
                 <span className="text-[10px] text-gray-400 cursor-help" title="Default credentials for testing">
                     Need help? Try admin@edtech.ai / admin
                 </span>
+            </div>
+            
+            {/* Factory Reset Danger Zone */}
+            <div className="absolute bottom-4 right-4">
+                 <button onClick={handleResetData} className="text-[10px] text-gray-300 hover:text-red-400 transition-colors flex items-center gap-1">
+                    <IconTrash /> Reset App Data
+                 </button>
             </div>
           </div>
         </div>
@@ -1237,8 +1259,13 @@ const App = () => {
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [masterPrompt, setMasterPrompt] = useState<string>(() => {
-    // Attempt to read from storage, but always fallback to the hardened DEFAULT
-    return localStorage.getItem(STORAGE_KEYS.PROMPT) || DEFAULT_MASTER_PROMPT;
+    // Attempt to read from storage
+    const stored = localStorage.getItem(STORAGE_KEYS.PROMPT);
+    // Safety check: if stored is empty string (accidental clear), fallback to default
+    if (stored && stored.trim().length > 0) {
+        return stored;
+    }
+    return DEFAULT_MASTER_PROMPT;
   });
   const [showSettings, setShowSettings] = useState(false);
   const [showRubricModal, setShowRubricModal] = useState(false);
@@ -1724,7 +1751,7 @@ Output Format Requirements:
     }
   };
 
-  const handleDownload = (msg: Message, format: 'txt' | 'doc' | 'pdf') => {
+  const handleDownload = (msg: Message, format: 'txt' | 'doc' | 'pdf' | 'csv') => {
     if (format === 'txt') {
         const blob = new Blob([msg.text], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
@@ -1748,12 +1775,39 @@ Output Format Requirements:
         a.click();
         URL.revokeObjectURL(url);
     } else if (format === 'pdf') {
-        // Simple PDF export using jsPDF
         const doc = new window.jspdf.jsPDF();
-        // Split text to fit page
         const splitText = doc.splitTextToSize(msg.text, 180);
         doc.text(splitText, 10, 10);
         doc.save(`response-${msg.id.slice(0,6)}.pdf`);
+    } else if (format === 'csv') {
+        // Simple CSV extraction from Markdown tables
+        // This is a basic implementation that attempts to find the first markdown table
+        const tableRegex = /\|(.+)\|[\r\n]+\|([-:|\s]+)\|[\r\n]+((?:\|.+\|[\r\n]+)+)/;
+        const match = msg.text.match(tableRegex);
+        
+        if (match) {
+            const headerRow = match[1];
+            const bodyRows = match[3];
+            
+            const processRow = (row: string) => row.split('|').filter(cell => cell.trim() !== '').map(cell => `"${cell.trim()}"`).join(',');
+            
+            let csvContent = processRow(headerRow) + '\n';
+            
+            const rows = bodyRows.trim().split('\n');
+            rows.forEach(row => {
+               csvContent += processRow(row) + '\n';
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `data-table-${msg.id.slice(0,6)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } else {
+            alert("No table found in this response to export as CSV.");
+        }
     }
   };
 
@@ -1778,35 +1832,43 @@ Output Format Requirements:
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden font-sans text-gray-900 dark:text-gray-100 transition-colors duration-300">
       
       {/* Admin Panel Modal */}
-      <AdminDashboard 
-        isOpen={showAdminPanel} 
-        onClose={() => setShowAdminPanel(false)} 
-        currentUser={currentUser}
-      />
+      {showAdminPanel && (
+          <AdminDashboard 
+            isOpen={showAdminPanel} 
+            onClose={() => setShowAdminPanel(false)} 
+            currentUser={currentUser}
+          />
+      )}
 
       {/* Rubric Generator Modal */}
-      <RubricGeneratorModal
-        isOpen={showRubricModal}
-        onClose={() => setShowRubricModal(false)}
-        onGenerate={handleGenerateRubric}
-        activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
-      />
+      {showRubricModal && (
+          <RubricGeneratorModal
+            isOpen={showRubricModal}
+            onClose={() => setShowRubricModal(false)}
+            onGenerate={handleGenerateRubric}
+            activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
+          />
+      )}
 
       {/* Lesson Plan Generator Modal */}
-      <LessonPlanModal
-        isOpen={showLessonModal}
-        onClose={() => setShowLessonModal(false)}
-        onGenerate={handleGenerateLessonPlan}
-        activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
-      />
+      {showLessonModal && (
+          <LessonPlanModal
+            isOpen={showLessonModal}
+            onClose={() => setShowLessonModal(false)}
+            onGenerate={handleGenerateLessonPlan}
+            activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
+          />
+      )}
 
       {/* Assessment Generator Modal */}
-      <AssessmentGeneratorModal
-        isOpen={showAssessmentModal}
-        onClose={() => setShowAssessmentModal(false)}
-        onGenerate={handleGenerateAssessment}
-        activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
-      />
+      {showAssessmentModal && (
+          <AssessmentGeneratorModal
+            isOpen={showAssessmentModal}
+            onClose={() => setShowAssessmentModal(false)}
+            onGenerate={handleGenerateAssessment}
+            activeDocName={documents.find(d => d.id === activeDocId)?.name || null}
+          />
+      )}
 
       {/* Mobile Sidebar Backdrop */}
       {isSidebarOpen && (
@@ -2083,7 +2145,7 @@ Output Format Requirements:
               <textarea
                 value={masterPrompt}
                 onChange={(e) => setMasterPrompt(e.target.value)}
-                className="w-full h-32 p-4 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none mb-4 font-mono text-sm dark:text-gray-200"
+                className="w-full h-48 p-4 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none mb-4 font-mono text-sm dark:text-gray-200"
                 placeholder="e.g. You are a senior legal analyst..."
               />
               <div className="flex justify-end gap-3">
@@ -2091,7 +2153,7 @@ Output Format Requirements:
                    onClick={() => setMasterPrompt(DEFAULT_MASTER_PROMPT)}
                    className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                  >
-                   Reset Default
+                   Restore System Default
                  </button>
                  <button 
                    onClick={saveMasterPrompt}
@@ -2180,6 +2242,9 @@ Output Format Requirements:
                       <button onClick={() => handleDownload(msg, 'doc')} className="text-xs font-medium text-blue-500 hover:underline px-2 py-1">DOC</button>
                       <button onClick={() => handleDownload(msg, 'pdf')} className="text-xs font-medium text-red-500 hover:underline px-2 py-1">PDF</button>
                       <button onClick={() => handleDownload(msg, 'txt')} className="text-xs font-medium text-gray-500 hover:underline px-2 py-1">TXT</button>
+                      {(msg.format === 'table' || msg.text.includes('|')) && (
+                          <button onClick={() => handleDownload(msg, 'csv')} className="text-xs font-medium text-green-500 hover:underline px-2 py-1">CSV (Sheet)</button>
+                      )}
                     </div>
                   )}
                 </div>
