@@ -96,10 +96,10 @@ SPECIFIC OUTPUT RULES:
 
 // Versioned keys to prevent stale data conflicts
 const STORAGE_KEYS = {
-  USERS: 'edtech_users_v3', 
-  SESSION: 'edtech_session_v3',
-  PROMPT: 'edtech_prompt_v3',
-  STATS: 'edtech_stats_v3'
+  USERS: 'edtech_users_v4', 
+  SESSION: 'edtech_session_v4',
+  PROMPT: 'edtech_prompt_v4',
+  STATS: 'edtech_stats_v4'
 };
 
 const BLOOMS_LEVELS = [
@@ -325,7 +325,28 @@ const extractTextFromDOCX = async (file: File): Promise<string> => {
 // Safe API Key retrieval (handles both node process and browser environments if bundled)
 const getApiKey = (): string | undefined => {
     try {
-        return process.env.API_KEY || (import.meta as any).env?.VITE_API_KEY;
+        // 1. Try standard process.env (bundlers often replace this string literal)
+        if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+            return process.env.API_KEY;
+        }
+        
+        // 2. Try Vite (standard for React on Vercel)
+        // Vercel requires VITE_ prefix for client-side exposure
+        if ((import.meta as any).env?.VITE_API_KEY) {
+            return (import.meta as any).env.VITE_API_KEY;
+        }
+        
+        // 3. Try Next.js (common on Vercel)
+        if (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_KEY) {
+            return process.env.NEXT_PUBLIC_API_KEY;
+        }
+        
+        // 4. Fallback for raw API_KEY in import.meta (rare)
+        if ((import.meta as any).env?.API_KEY) {
+            return (import.meta as any).env.API_KEY;
+        }
+        
+        return undefined;
     } catch (e) {
         return undefined;
     }
@@ -1313,6 +1334,13 @@ const App = () => {
     }
   }, []);
 
+  // PERSISTENCE FIX: Save session whenever user changes
+  useEffect(() => {
+    if (currentUser) {
+      setSession(currentUser);
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -1422,7 +1450,7 @@ const App = () => {
       setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY** in the Vercel dashboard settings.",
           timestamp: Date.now(),
           isError: true
       }]);
@@ -1516,7 +1544,7 @@ Output Format Requirements:
       setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY** in the Vercel dashboard settings.",
           timestamp: Date.now(),
           isError: true
       }]);
@@ -1612,7 +1640,7 @@ Output Format Requirements:
       setMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'model',
-          text: "⚠️ **System Error**: API Key is missing or invalid in the environment configuration. Please check your deployment settings.",
+          text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY** in the Vercel dashboard settings.",
           timestamp: Date.now(),
           isError: true
       }]);
@@ -1713,7 +1741,7 @@ Output Format Requirements:
           setMessages(prev => [...prev, {
               id: crypto.randomUUID(),
               role: 'model',
-              text: "⚠️ **System Error**: API Key is missing. Please check your environment variables (VITE_API_KEY or API_KEY).",
+              text: "⚠️ **System Error**: API Key is missing. If you are deploying to Vercel, please rename your environment variable to **VITE_API_KEY** in the Vercel dashboard settings.",
               timestamp: Date.now(),
               isError: true
           }]);
