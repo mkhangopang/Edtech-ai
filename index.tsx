@@ -4,8 +4,20 @@ import { GoogleGenAI, Content } from "@google/genai";
 import { createClient } from '@supabase/supabase-js';
 
 // --- CONFIGURATION & HYBRID FALLBACK ---
-const ENV_URL = (import.meta as any).env?.VITE_SUPABASE_URL;
-const ENV_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+// Safe environment variable access
+const getEnv = (key: string) => {
+    try {
+        // @ts-ignore
+        if (typeof import.meta !== 'undefined' && import.meta.env) return import.meta.env[key];
+    } catch(e) {}
+    try {
+        if (typeof process !== 'undefined' && process.env) return process.env[key];
+    } catch(e) {}
+    return undefined;
+}
+
+const ENV_URL = getEnv('VITE_SUPABASE_URL');
+const ENV_KEY = getEnv('VITE_SUPABASE_ANON_KEY');
 
 const isSupabaseConfigured = ENV_URL && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key";
 const supabase = createClient(ENV_URL || "https://placeholder.supabase.co", ENV_KEY || "placeholder");
@@ -336,8 +348,8 @@ const extractTextFromDOCX = async (file: File): Promise<string> => {
 };
 
 const getApiKey = (): string | null => {
-    if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
-    if ((import.meta as any).env?.VITE_API_KEY) return (import.meta as any).env.VITE_API_KEY;
+    const key = getEnv('API_KEY') || getEnv('VITE_API_KEY');
+    if (key) return key;
     return sessionStorage.getItem(STORAGE_KEYS.API_KEY);
 };
 
