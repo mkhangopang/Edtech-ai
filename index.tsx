@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Content } from "@google/genai";
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // --- CONFIGURATION & HYBRID FALLBACK ---
-// Safe environment variable access
 const getEnv = (key: string) => {
     try {
         // @ts-ignore
@@ -19,8 +18,12 @@ const getEnv = (key: string) => {
 const ENV_URL = getEnv('VITE_SUPABASE_URL');
 const ENV_KEY = getEnv('VITE_SUPABASE_ANON_KEY');
 
-const isSupabaseConfigured = ENV_URL && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key";
-const supabase = createClient(ENV_URL || "https://placeholder.supabase.co", ENV_KEY || "placeholder");
+const isSupabaseConfigured = !!(ENV_URL && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key");
+
+// Prevent initializing client with bad data to avoid network timeouts/errors
+const supabase: SupabaseClient | null = isSupabaseConfigured 
+    ? createClient(ENV_URL!, ENV_KEY!) 
+    : null;
 
 // --- Constants & Storage Keys ---
 const STORAGE_KEYS = {
@@ -136,7 +139,7 @@ const IconBrain = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w
 // --- API LAYER (HYBRID) ---
 const api = {
     getProfile: async (): Promise<UserProfile | null> => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
              const sessionStr = localStorage.getItem(STORAGE_KEYS.SESSION);
              return sessionStr ? JSON.parse(sessionStr) : null;
         }
@@ -156,7 +159,7 @@ const api = {
     },
 
     saveDoc: async (doc: DocumentFile) => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
              const key = `${STORAGE_KEYS.DOCS_PREFIX}${doc.user_id}`;
              const docsStr = localStorage.getItem(key);
              const docs: DocumentFile[] = docsStr ? JSON.parse(docsStr) : [];
@@ -171,7 +174,7 @@ const api = {
     },
 
     getDocs: async (userId: string): Promise<DocumentFile[]> => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
             const key = `${STORAGE_KEYS.DOCS_PREFIX}${userId}`;
             const docsStr = localStorage.getItem(key);
             return docsStr ? JSON.parse(docsStr) : [];
@@ -181,7 +184,7 @@ const api = {
     },
 
     saveChat: async (userId: string, messages: Message[]) => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
              localStorage.setItem(`${STORAGE_KEYS.CHAT_PREFIX}${userId}`, JSON.stringify(messages));
              return;
         }
@@ -198,7 +201,7 @@ const api = {
     },
 
     getChat: async (userId: string): Promise<Message[]> => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
             const str = localStorage.getItem(`${STORAGE_KEYS.CHAT_PREFIX}${userId}`);
             return str ? JSON.parse(str) : [];
         }
@@ -208,7 +211,7 @@ const api = {
 
     // --- ASYNC CALENDAR EVENTS (DB + Fallback) ---
     getEvents: async (userId: string): Promise<CalendarEvent[]> => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
             const str = localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`);
             return str ? JSON.parse(str) : [];
         }
@@ -225,7 +228,7 @@ const api = {
     },
 
     saveEvent: async (userId: string, event: CalendarEvent) => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
             const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
             current.push(event);
             localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(current));
@@ -249,7 +252,7 @@ const api = {
     },
     
     deleteEvent: async (userId: string, eventId: string) => {
-        if(!isSupabaseConfigured) {
+        if(!supabase) {
              const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
              const next = current.filter((e: CalendarEvent) => e.id !== eventId);
              localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(next));
@@ -267,7 +270,7 @@ const api = {
 
     // App Brain
     getMasterPrompt: async (): Promise<string> => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
             return localStorage.getItem('edtech_master_prompt') || DEFAULT_SYSTEM_INSTRUCTION;
         }
         const { data } = await supabase.from('system_settings').select('value').eq('key', 'master_prompt').maybeSingle();
@@ -275,7 +278,7 @@ const api = {
     },
 
     setMasterPrompt: async (prompt: string) => {
-        if (!isSupabaseConfigured) {
+        if (!supabase) {
             localStorage.setItem('edtech_master_prompt', prompt);
             return;
         }
@@ -290,7 +293,7 @@ const api = {
     },
 
     getAllUsers: async (): Promise<UserProfile[]> => {
-        if (!isSupabaseConfigured) return [];
+        if (!supabase) return [];
         try {
             const { data } = await supabase.from('profiles').select('*').order('joined_date', { ascending: false });
             return data || [];
@@ -530,7 +533,7 @@ const PricingModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () 
              window.location.reload();
              return;
         }
-        const { error } = await supabase.from('profiles').update({ plan }).eq('id', user.id);
+        const { error } = await supabase!.from('profiles').update({ plan }).eq('id', user.id);
         if(!error) {
             alert(`Upgraded to ${plan}! Refreshing...`);
             window.location.reload();
@@ -805,7 +808,10 @@ const App = () => {
     const [lessonCtx, setLessonCtx] = useState<string>(""); 
 
     useEffect(() => {
-        if (isSupabaseConfigured) {
+        // Safe logging for debug
+        console.log("App Mounted");
+        
+        if (supabase) {
             const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
                 if (session) {
                     const profile = await api.getProfile();
@@ -836,7 +842,7 @@ const App = () => {
         e.preventDefault();
         setAuthLoading(true);
         try {
-            if (!isSupabaseConfigured) {
+            if (!supabase) {
                 const u: UserProfile = { 
                     id: 'local-user', 
                     email: email, 
@@ -979,7 +985,7 @@ const App = () => {
                      <div className="w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center text-white font-bold text-xl mx-auto mb-4">E</div>
                      <h1 className="text-2xl font-bold dark:text-white">Welcome to Edtech AI</h1>
                      <p className="mt-2 text-gray-600 dark:text-gray-400">Sign in to start planning.</p>
-                     {!isSupabaseConfigured && (
+                     {!supabase && (
                          <div className="mt-4 p-2 bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs rounded border border-yellow-200 dark:border-yellow-800 flex items-center justify-center gap-2">
                              <IconOffline /> 
                              <span>Demo Mode (Local Storage Only)</span>
@@ -1060,7 +1066,7 @@ const App = () => {
                             </button>
                         )}
                     </div>
-                    <button onClick={() => { isSupabaseConfigured ? supabase.auth.signOut() : (localStorage.removeItem(STORAGE_KEYS.SESSION), window.location.reload()) }} className="w-full py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800">Sign Out</button>
+                    <button onClick={() => { supabase ? supabase.auth.signOut() : (localStorage.removeItem(STORAGE_KEYS.SESSION), window.location.reload()) }} className="w-full py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800">Sign Out</button>
                 </div>
             </div>
 
@@ -1070,7 +1076,7 @@ const App = () => {
                      <div className="p-4 md:p-8 overflow-y-auto h-full">
                          <div className="flex justify-between items-center mb-6">
                             <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Hello, {user.full_name}</h1>
-                            {isSupabaseConfigured ? (
+                            {supabase ? (
                                 <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1"><IconCloud /> Online</span>
                             ) : (
                                 <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full flex items-center gap-1"><IconOffline /> Offline</span>
@@ -1155,4 +1161,9 @@ const App = () => {
 };
 
 const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+try {
+  root.render(<App />);
+} catch(e) {
+  console.error("Mounting Error:", e);
+  document.getElementById('root')!.innerHTML = `<div style="color:red; padding:20px;">App Crashed: ${e}</div>`;
+}

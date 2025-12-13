@@ -63,7 +63,10 @@
     
     <style>
       html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-      body { font-family: 'Inter', sans-serif; }
+      body { font-family: 'Inter', sans-serif; background-color: #f9fafb; }
+      @media (prefers-color-scheme: dark) {
+        body { background-color: #111827; }
+      }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
       .dark ::-webkit-scrollbar-thumb { background: #475569; }
@@ -81,6 +84,25 @@
       .dark .prose th { background: rgba(255,255,255,0.05); border-bottom: 2px solid rgba(255,255,255,0.1); }
       .prose td { padding: 0.75em; border-bottom: 1px solid rgba(0,0,0,0.1); }
       .dark .prose td { border-bottom: 1px solid rgba(255,255,255,0.1); }
+
+      /* Loading Spinner */
+      .loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #6366f1;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+      }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      #loading-screen {
+        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: #fff; z-index: 9999;
+      }
+      @media (prefers-color-scheme: dark) {
+        #loading-screen { background: #111827; color: #fff; }
+      }
     </style>
   <script type="importmap">
 {
@@ -96,7 +118,23 @@
 </script>
 </head>
   <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
-    <div id="root"></div>
+    <div id="root">
+      <div id="loading-screen">
+        <div class="loader"></div>
+        <p class="font-medium text-gray-500 dark:text-gray-400">Loading Edtech AI...</p>
+      </div>
+    </div>
+
+    <!-- Error Handler -->
+    <script>
+      window.addEventListener('error', function(e) {
+        if(e.message && (e.message.includes('import') || e.message.includes('module'))) {
+           const root = document.getElementById('root');
+           root.innerHTML = '<div style="padding:20px; color:red;"><h3>Startup Error</h3><p>Failed to load application modules. Please check your network connection.</p><pre style="background:#eee; padding:10px; font-size:12px; overflow:auto;">'+e.message+'</pre></div>';
+        }
+      });
+    </script>
+    
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
