@@ -28,14 +28,6 @@
                 600: '#4f46e5',
                 700: '#4338ca',
               },
-              accent: {
-                500: '#10b981',
-                600: '#059669',
-              },
-              neon: {
-                blue: '#00f3ff',
-                purple: '#bc13fe',
-              }
             },
             screens: {
               'xs': '475px',
@@ -48,137 +40,38 @@
     <!-- PDF.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-      // Configure PDF.js worker
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
 
-    <!-- Mammoth.js for DOCX -->
+    <!-- Mammoth.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     
-    <!-- Tesseract.js for OCR -->
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
-    
-    <!-- Marked.js for Markdown Rendering -->
+    <!-- Marked.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
     
-    <!-- jsPDF for PDF Generation -->
+    <!-- jsPDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
-    <!-- html2canvas for PDF Generation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-
     <style>
-      html, body, #root {
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        overflow: hidden; /* Prevent body scroll */
-      }
+      html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+      body { font-family: 'Inter', sans-serif; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+      .dark ::-webkit-scrollbar-thumb { background: #475569; }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       
-      body {
-        font-family: 'Inter', sans-serif;
-      }
-      
-      /* Custom scrollbar for webkit */
-      ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent; 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #cbd5e1; 
-        border-radius: 4px;
-      }
-      .dark ::-webkit-scrollbar-thumb {
-        background: #475569; 
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8; 
-      }
-      .dark ::-webkit-scrollbar-thumb:hover {
-        background: #64748b; 
-      }
-      
-      /* Hide scrollbar for clean horizontal scrolling */
-      .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-      }
-      .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-      }
-      
-      /* Markdown content styles */
-      .prose {
-        max-width: none;
-        line-height: 1.6;
-      }
+      .prose { max-width: none; line-height: 1.6; }
       .prose p { margin-bottom: 0.75em; }
       .prose ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 0.75em; }
       .prose ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 0.75em; }
-      .prose h1 { font-size: 1.5em; font-weight: 700; margin-top: 1em; margin-bottom: 0.5em; color: inherit; }
-      .prose h2 { font-size: 1.25em; font-weight: 600; margin-top: 1em; margin-bottom: 0.5em; color: inherit; }
-      .prose h3 { font-size: 1.1em; font-weight: 600; margin-top: 1em; margin-bottom: 0.5em; color: inherit; }
-      
-      .prose code { 
-        background: rgba(0,0,0,0.06); 
-        padding: 0.2em 0.4em; 
-        border-radius: 4px; 
-        font-size: 0.85em; 
-        font-family: monospace;
-      }
-      .dark .prose code { background: rgba(255,255,255,0.1); }
-      
-      .prose pre { 
-        background: #1e293b; 
-        padding: 1em; 
-        border-radius: 8px; 
-        overflow-x: auto; 
-        margin-bottom: 1em; 
-        color: #e2e8f0;
-      }
-      .prose pre code { background: transparent; padding: 0; color: inherit; }
-      
-      /* Table Styles for Markdown */
-      .prose table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 1em;
-        font-size: 0.95em;
-      }
-      .prose th {
-        background: rgba(0,0,0,0.05);
-        font-weight: 600;
-        text-align: left;
-        padding: 0.75em;
-        border-bottom: 2px solid rgba(0,0,0,0.1);
-      }
-      .dark .prose th {
-        background: rgba(255,255,255,0.05);
-        border-bottom: 2px solid rgba(255,255,255,0.1);
-      }
-      .prose td {
-        padding: 0.75em;
-        border-bottom: 1px solid rgba(0,0,0,0.1);
-      }
-      .dark .prose td {
-        border-bottom: 1px solid rgba(255,255,255,0.1);
-      }
-      .prose tr:last-child td { border-bottom: none; }
-      
-      .prose blockquote {
-        border-left: 4px solid #cbd5e1;
-        padding-left: 1em;
-        font-style: italic;
-        color: #64748b;
-        margin-bottom: 1em;
-      }
-      .dark .prose blockquote {
-        border-left-color: #475569;
-        color: #94a3b8;
-      }
+      .prose h1, .prose h2, .prose h3 { font-weight: 600; margin-top: 1em; margin-bottom: 0.5em; color: inherit; }
+      .prose pre { background: #1e293b; padding: 1em; border-radius: 8px; overflow-x: auto; margin-bottom: 1em; color: #e2e8f0; }
+      .prose table { width: 100%; border-collapse: collapse; margin-bottom: 1em; font-size: 0.95em; }
+      .prose th { background: rgba(0,0,0,0.05); font-weight: 600; text-align: left; padding: 0.75em; border-bottom: 2px solid rgba(0,0,0,0.1); }
+      .dark .prose th { background: rgba(255,255,255,0.05); border-bottom: 2px solid rgba(255,255,255,0.1); }
+      .prose td { padding: 0.75em; border-bottom: 1px solid rgba(0,0,0,0.1); }
+      .dark .prose td { border-bottom: 1px solid rgba(255,255,255,0.1); }
     </style>
   <script type="importmap">
 {
@@ -186,7 +79,8 @@
     "react/": "https://aistudiocdn.com/react@^19.2.1/",
     "react": "https://aistudiocdn.com/react@^19.2.1",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/"
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@2.39.3"
   }
 }
 </script>
