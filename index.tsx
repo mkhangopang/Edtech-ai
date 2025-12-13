@@ -36,6 +36,15 @@ interface User {
   joinedDate: number;
 }
 
+interface ScheduleEvent {
+  id: string;
+  title: string;
+  date: string; // YYYY-MM-DD
+  type: 'lesson' | 'assessment' | 'task' | 'meeting';
+  description?: string;
+  startTime?: string;
+}
+
 interface RubricConfig {
   assignment: string;
   gradeLevel: string;
@@ -105,7 +114,8 @@ const STORAGE_KEYS = {
   SESSION: 'edtech_session_v5',
   PROMPT: 'edtech_prompt_v5',
   STATS: 'edtech_stats_v5',
-  DOCS_PREFIX: 'edtech_docs_v5_' // Suffix with userID
+  DOCS_PREFIX: 'edtech_docs_v5_', // Suffix with userID
+  EVENTS_PREFIX: 'edtech_events_v5_' // Suffix with userID
 };
 
 const BLOOMS_LEVELS = [
@@ -303,6 +313,36 @@ const IconStar = () => (
   </svg>
 );
 
+const IconCalendar = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+);
+
+const IconChevronLeft = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+    </svg>
+);
+
+const IconChevronRight = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+    </svg>
+);
+
+const IconPlus = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+    </svg>
+);
+
+const IconChat = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+  </svg>
+);
+
 // --- Helpers ---
 
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -415,6 +455,7 @@ const clearSession = () => {
 // --- Doc Storage Helpers ---
 
 const getUserDocsKey = (userId: string) => `${STORAGE_KEYS.DOCS_PREFIX}${userId}`;
+const getUserEventsKey = (userId: string) => `${STORAGE_KEYS.EVENTS_PREFIX}${userId}`;
 
 const getStoredDocs = (userId: string): DocumentFile[] => {
     try {
@@ -427,6 +468,19 @@ const getStoredDocs = (userId: string): DocumentFile[] => {
 
 const saveStoredDocs = (userId: string, docs: DocumentFile[]) => {
     localStorage.setItem(getUserDocsKey(userId), JSON.stringify(docs));
+};
+
+const getStoredEvents = (userId: string): ScheduleEvent[] => {
+    try {
+        const eventsStr = localStorage.getItem(getUserEventsKey(userId));
+        return eventsStr ? JSON.parse(eventsStr) : [];
+    } catch (e) {
+        return [];
+    }
+};
+
+const saveStoredEvents = (userId: string, events: ScheduleEvent[]) => {
+    localStorage.setItem(getUserEventsKey(userId), JSON.stringify(events));
 };
 
 // --- Stats Helpers ---
@@ -779,6 +833,224 @@ const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
 
 // ... [Rubric, Assessment, and Lesson Plan Modal components are unchanged] ...
 
+// --- Add Event Modal Component ---
+const AddEventModal = ({
+  isOpen,
+  onClose,
+  onAdd
+}: {
+  isOpen: boolean,
+  onClose: () => void,
+  onAdd: (event: Omit<ScheduleEvent, 'id'>) => void
+}) => {
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [type, setType] = useState<ScheduleEvent['type']>('task');
+  const [description, setDescription] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      onAdd({ title, date, type, description });
+      // Reset form
+      setTitle('');
+      setDescription('');
+      onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <IconCalendar /> Add Event
+                </h3>
+                <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                    <IconClose />
+                </button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
+                    <input 
+                        type="text" 
+                        required
+                        value={title}
+                        onChange={e => setTitle(e.target.value)}
+                        placeholder="e.g. Lesson Plan Review"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+                    />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
+                        <input 
+                            type="date" 
+                            required
+                            value={date}
+                            onChange={e => setDate(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
+                        <select 
+                            value={type}
+                            onChange={e => setType(e.target.value as any)}
+                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+                        >
+                            <option value="task">Task</option>
+                            <option value="lesson">Lesson</option>
+                            <option value="assessment">Assessment</option>
+                            <option value="meeting">Meeting</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (Optional)</label>
+                    <textarea 
+                        value={description}
+                        onChange={e => setDescription(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+                        rows={3}
+                    />
+                </div>
+                <div className="pt-2 flex justify-end gap-2">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg shadow-md transition-all">
+                        Save Event
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+  );
+};
+
+// --- Calendar View Component ---
+
+const CalendarView = ({ events, onAddEvent, onDeleteEvent }: { events: ScheduleEvent[], onAddEvent: () => void, onDeleteEvent: (id: string) => void }) => {
+    const [currentDate, setCurrentDate] = useState(new Date());
+
+    const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+    const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
+
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDay = getFirstDayOfMonth(year, month);
+    
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    
+    const days = [];
+    // Padding for prev month
+    for (let i = 0; i < firstDay; i++) {
+        days.push(null);
+    }
+    // Days of current month
+    for (let i = 1; i <= daysInMonth; i++) {
+        days.push(i);
+    }
+
+    const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+    const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+    const goToday = () => setCurrentDate(new Date());
+
+    const getEventsForDay = (day: number) => {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return events.filter(e => e.date === dateStr);
+    };
+
+    const getTypeColor = (type: ScheduleEvent['type']) => {
+        switch(type) {
+            case 'lesson': return 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300 border-teal-200 dark:border-teal-800';
+            case 'assessment': return 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+            case 'meeting': return 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+            default: return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-white dark:bg-gray-900 animate-fadeIn">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-800">
+                <div className="flex items-center gap-4">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {monthNames[month]} {year}
+                    </h2>
+                    <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1 border border-gray-200 dark:border-gray-700">
+                        <button onClick={prevMonth} className="p-1 hover:bg-white dark:hover:bg-gray-700 rounded shadow-sm transition-all text-gray-600 dark:text-gray-300">
+                            <IconChevronLeft />
+                        </button>
+                        <button onClick={goToday} className="px-3 py-1 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-primary-600 dark:hover:text-primary-400">
+                            Today
+                        </button>
+                        <button onClick={nextMonth} className="p-1 hover:bg-white dark:hover:bg-gray-700 rounded shadow-sm transition-all text-gray-600 dark:text-gray-300">
+                            <IconChevronRight />
+                        </button>
+                    </div>
+                </div>
+                <button 
+                    onClick={onAddEvent}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg shadow-md transition-all font-medium text-sm"
+                >
+                    <IconPlus /> Add Event
+                </button>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-6">
+                <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
+                    {/* Weekday Headers */}
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                        <div key={d} className="bg-gray-50 dark:bg-gray-800 p-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                            {d}
+                        </div>
+                    ))}
+                    
+                    {/* Days */}
+                    {days.map((day, idx) => {
+                        const dayEvents = day ? getEventsForDay(day) : [];
+                        const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
+                        
+                        return (
+                            <div 
+                                key={idx} 
+                                className={`min-h-[120px] bg-white dark:bg-gray-800 p-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50 flex flex-col gap-1 ${!day ? 'bg-gray-50/50 dark:bg-gray-900/50' : ''}`}
+                            >
+                                {day && (
+                                    <>
+                                        <div className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full mb-1 ${isToday ? 'bg-primary-600 text-white shadow-md' : 'text-gray-700 dark:text-gray-300'}`}>
+                                            {day}
+                                        </div>
+                                        <div className="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
+                                            {dayEvents.map(event => (
+                                                <div 
+                                                    key={event.id} 
+                                                    className={`text-xs p-1.5 rounded border ${getTypeColor(event.type)} group relative`}
+                                                >
+                                                    <div className="font-semibold truncate">{event.title}</div>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}
+                                                        className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 p-0.5 bg-white dark:bg-gray-800 rounded-full shadow text-red-500"
+                                                    >
+                                                        <IconClose />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- Rubric Generator Component ---
 const RubricGeneratorModal = ({ 
   isOpen, 
@@ -920,6 +1192,170 @@ const RubricGeneratorModal = ({
            >
              <IconSparkles />
              Generate Rubric
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Lesson Plan Modal Component ---
+const LessonPlanModal = ({ 
+  isOpen, 
+  onClose, 
+  onGenerate,
+  activeDocName
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onGenerate: (config: LessonConfig) => void,
+  activeDocName: string | null
+}) => {
+  const [config, setConfig] = useState<LessonConfig>({
+    templateId: '5e',
+    topic: '',
+    gradeLevel: '9th Grade',
+    duration: '60 minutes',
+    objectives: '',
+    standards: '',
+    useActiveDoc: !!activeDocName
+  });
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <div className="flex justify-between items-center">
+             <div className="flex items-center gap-3">
+               <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                 <IconClipboard />
+               </div>
+               <div>
+                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">Lesson Plan Generator</h2>
+                 <p className="text-xs text-gray-500 dark:text-gray-400">Design lessons using proven frameworks</p>
+               </div>
+             </div>
+             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+               <IconClose />
+             </button>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4 overflow-y-auto">
+          {/* Template Selection */}
+          <div>
+             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Lesson Framework</label>
+             <div className="grid grid-cols-1 gap-2">
+                {LESSON_TEMPLATES.map(template => (
+                   <div 
+                      key={template.id}
+                      onClick={() => setConfig({...config, templateId: template.id})}
+                      className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                        config.templateId === template.id
+                        ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-500 ring-1 ring-primary-500'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-400'
+                      }`}
+                   >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{template.name}</span>
+                        {config.templateId === template.id && (
+                           <span className="text-primary-600 dark:text-primary-400"><IconSparkles /></span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{template.description}</p>
+                   </div>
+                ))}
+             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Topic / Subject</label>
+            <input 
+              type="text"
+              value={config.topic}
+              onChange={(e) => setConfig({...config, topic: e.target.value})}
+              placeholder="e.g. Photosynthesis, The Civil War, Linear Equations"
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade Level</label>
+               <input 
+                 type="text"
+                 value={config.gradeLevel}
+                 onChange={(e) => setConfig({...config, gradeLevel: e.target.value})}
+                 placeholder="e.g. 5th Grade"
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               />
+             </div>
+             <div>
+               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Duration</label>
+               <input 
+                 type="text"
+                 value={config.duration}
+                 onChange={(e) => setConfig({...config, duration: e.target.value})}
+                 placeholder="e.g. 60 min"
+                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+               />
+             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Learning Objectives</label>
+            <textarea 
+              value={config.objectives}
+              onChange={(e) => setConfig({...config, objectives: e.target.value})}
+              placeholder="e.g. Students will be able to identify key battles..."
+              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+              rows={2}
+            />
+          </div>
+
+          <div>
+             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Standards (Optional)</label>
+             <input 
+               type="text"
+               value={config.standards}
+               onChange={(e) => setConfig({...config, standards: e.target.value})}
+               placeholder="e.g. CCSS.ELA-LITERACY.RL.9-10.1"
+               className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
+             />
+          </div>
+          
+          {activeDocName && (
+            <div className="flex items-center gap-2 pt-2">
+               <input 
+                 type="checkbox" 
+                 id="useActiveDocLesson"
+                 checked={config.useActiveDoc}
+                 onChange={(e) => setConfig({...config, useActiveDoc: e.target.checked})}
+                 className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 border-gray-300"
+               />
+               <label htmlFor="useActiveDocLesson" className="text-sm text-gray-700 dark:text-gray-300">
+                 Base on content from: <span className="font-medium text-primary-600">{activeDocName}</span>
+               </label>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3">
+           <button 
+             onClick={onClose}
+             className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+           >
+             Cancel
+           </button>
+           <button 
+             onClick={() => onGenerate(config)}
+             disabled={!config.topic}
+             className="px-5 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/30 transition-all flex items-center gap-2"
+           >
+             <IconSparkles />
+             Generate Lesson
            </button>
         </div>
       </div>
@@ -1086,170 +1522,6 @@ const AssessmentGeneratorModal = ({
            >
              <IconSparkles />
              Generate Quiz
-           </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- Lesson Plan Modal Component ---
-const LessonPlanModal = ({ 
-  isOpen, 
-  onClose, 
-  onGenerate,
-  activeDocName
-}: { 
-  isOpen: boolean, 
-  onClose: () => void, 
-  onGenerate: (config: LessonConfig) => void,
-  activeDocName: string | null
-}) => {
-  const [config, setConfig] = useState<LessonConfig>({
-    templateId: '5e',
-    topic: '',
-    gradeLevel: '9th Grade',
-    duration: '60 minutes',
-    objectives: '',
-    standards: '',
-    useActiveDoc: !!activeDocName
-  });
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <div className="flex justify-between items-center">
-             <div className="flex items-center gap-3">
-               <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
-                 <IconClipboard />
-               </div>
-               <div>
-                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">Lesson Plan Generator</h2>
-                 <p className="text-xs text-gray-500 dark:text-gray-400">Design lessons using proven frameworks</p>
-               </div>
-             </div>
-             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-               <IconClose />
-             </button>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-4 overflow-y-auto">
-          {/* Template Selection */}
-          <div>
-             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Lesson Framework</label>
-             <div className="grid grid-cols-1 gap-2">
-                {LESSON_TEMPLATES.map(template => (
-                   <div 
-                      key={template.id}
-                      onClick={() => setConfig({...config, templateId: template.id})}
-                      className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                        config.templateId === template.id
-                        ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-500 ring-1 ring-primary-500'
-                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-400'
-                      }`}
-                   >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{template.name}</span>
-                        {config.templateId === template.id && (
-                           <span className="text-primary-600 dark:text-primary-400"><IconSparkles /></span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{template.description}</p>
-                   </div>
-                ))}
-             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Topic / Subject</label>
-            <input 
-              type="text"
-              value={config.topic}
-              onChange={(e) => setConfig({...config, topic: e.target.value})}
-              placeholder="e.g. Photosynthesis, The Civil War, Linear Equations"
-              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-             <div>
-               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Grade Level</label>
-               <input 
-                 type="text"
-                 value={config.gradeLevel}
-                 onChange={(e) => setConfig({...config, gradeLevel: e.target.value})}
-                 placeholder="e.g. 5th Grade"
-                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
-               />
-             </div>
-             <div>
-               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Duration</label>
-               <input 
-                 type="text"
-                 value={config.duration}
-                 onChange={(e) => setConfig({...config, duration: e.target.value})}
-                 placeholder="e.g. 60 min"
-                 className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
-               />
-             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Learning Objectives</label>
-            <textarea 
-              value={config.objectives}
-              onChange={(e) => setConfig({...config, objectives: e.target.value})}
-              placeholder="e.g. Students will be able to identify key battles..."
-              className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
-              rows={2}
-            />
-          </div>
-
-          <div>
-             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Standards (Optional)</label>
-             <input 
-               type="text"
-               value={config.standards}
-               onChange={(e) => setConfig({...config, standards: e.target.value})}
-               placeholder="e.g. CCSS.ELA-LITERACY.RL.9-10.1"
-               className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white text-sm"
-             />
-          </div>
-          
-          {activeDocName && (
-            <div className="flex items-center gap-2 pt-2">
-               <input 
-                 type="checkbox" 
-                 id="useActiveDocLesson"
-                 checked={config.useActiveDoc}
-                 onChange={(e) => setConfig({...config, useActiveDoc: e.target.checked})}
-                 className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500 border-gray-300"
-               />
-               <label htmlFor="useActiveDocLesson" className="text-sm text-gray-700 dark:text-gray-300">
-                 Base on content from: <span className="font-medium text-primary-600">{activeDocName}</span>
-               </label>
-            </div>
-          )}
-        </div>
-
-        <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3">
-           <button 
-             onClick={onClose}
-             className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
-           >
-             Cancel
-           </button>
-           <button 
-             onClick={() => onGenerate(config)}
-             disabled={!config.topic}
-             className="px-5 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg shadow-lg shadow-primary-500/30 transition-all flex items-center gap-2"
-           >
-             <IconSparkles />
-             Generate Lesson
            </button>
         </div>
       </div>
@@ -1425,6 +1697,9 @@ const App = () => {
   // App State
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [events, setEvents] = useState<ScheduleEvent[]>([]);
+  const [currentView, setCurrentView] = useState<'chat' | 'calendar'>('chat');
+  
   const [masterPrompt, setMasterPrompt] = useState<string>(() => {
     // Attempt to read from storage
     const stored = localStorage.getItem(STORAGE_KEYS.PROMPT);
@@ -1441,6 +1716,7 @@ const App = () => {
   const [showRubricModal, setShowRubricModal] = useState(false);
   const [showLessonModal, setShowLessonModal] = useState(false);
   const [showAssessmentModal, setShowAssessmentModal] = useState(false);
+  const [showAddEventModal, setShowAddEventModal] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -1474,8 +1750,13 @@ const App = () => {
       const docs = getStoredDocs(currentUser.id);
       setDocuments(docs);
       if (docs.length > 0) setActiveDocId(docs[0].id);
+      
+      // Load events
+      const loadedEvents = getStoredEvents(currentUser.id);
+      setEvents(loadedEvents);
     } else {
         setDocuments([]);
+        setEvents([]);
         setActiveDocId(null);
     }
   }, [currentUser]);
@@ -1489,10 +1770,10 @@ const App = () => {
   }, [isDarkMode]);
 
   useEffect(() => {
-    if (messagesEndRef.current) {
+    if (currentView === 'chat' && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, currentView]);
 
   // --- Handlers ---
 
@@ -1504,6 +1785,7 @@ const App = () => {
     clearSession();
     setCurrentUser(null);
     setDocuments([]);
+    setEvents([]);
     setActiveDocId(null);
     setMessages([]);
     setShowSettings(false); // Ensure settings panel is closed
@@ -1516,6 +1798,26 @@ const App = () => {
       setCurrentUser(updatedUser);
       setShowPricingModal(false);
       alert(`Successfully upgraded to ${PLAN_LIMITS[plan].label}!`);
+  };
+  
+  const handleAddEvent = (eventData: Omit<ScheduleEvent, 'id'>) => {
+      if (!currentUser) return;
+      const newEvent: ScheduleEvent = {
+          ...eventData,
+          id: crypto.randomUUID()
+      };
+      const updatedEvents = [...events, newEvent];
+      setEvents(updatedEvents);
+      saveStoredEvents(currentUser.id, updatedEvents);
+  };
+  
+  const handleDeleteEvent = (eventId: string) => {
+      if (!currentUser) return;
+      if (confirm("Delete this event?")) {
+          const updatedEvents = events.filter(e => e.id !== eventId);
+          setEvents(updatedEvents);
+          saveStoredEvents(currentUser.id, updatedEvents);
+      }
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2092,6 +2394,15 @@ Output Format Requirements:
             currentPlan={currentUser.plan}
           />
       )}
+      
+      {/* Add Event Modal */}
+      {showAddEventModal && (
+          <AddEventModal 
+            isOpen={showAddEventModal} 
+            onClose={() => setShowAddEventModal(false)}
+            onAdd={handleAddEvent}
+          />
+      )}
 
       {/* Rubric Generator Modal */}
       {showRubricModal && (
@@ -2223,6 +2534,35 @@ Output Format Requirements:
            )}
         </div>
 
+        {/* Workspace Nav (New Section) */}
+        <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 space-y-2 overflow-y-auto max-h-48">
+             {!isSidebarCollapsed && <h3 className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 animate-fadeIn">Workspace</h3>}
+             
+             <button
+                onClick={() => { setCurrentView('chat'); setIsSidebarOpen(false); }}
+                className={`w-full flex items-center gap-2 p-2 rounded-lg transition-all text-sm font-medium ${
+                    currentView === 'chat'
+                    ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50 border border-transparent'
+                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+             >
+                 <IconChat />
+                 {!isSidebarCollapsed && <span className="animate-fadeIn">AI Chat</span>}
+             </button>
+
+             <button
+                onClick={() => { setCurrentView('calendar'); setIsSidebarOpen(false); }}
+                className={`w-full flex items-center gap-2 p-2 rounded-lg transition-all text-sm font-medium ${
+                    currentView === 'calendar'
+                    ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50 border border-transparent'
+                } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+             >
+                 <IconCalendar />
+                 {!isSidebarCollapsed && <span className="animate-fadeIn">Schedule</span>}
+             </button>
+        </div>
+
         {/* AI Tools Section */}
         <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 space-y-2 overflow-y-auto max-h-48">
            {!isSidebarCollapsed && <h3 className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 animate-fadeIn">AI Tools</h3>}
@@ -2307,10 +2647,10 @@ Output Format Requirements:
             documents.map(doc => (
               <div 
                 key={doc.id}
-                onClick={() => { setActiveDocId(doc.id); setIsSidebarOpen(false); }}
+                onClick={() => { setActiveDocId(doc.id); setCurrentView('chat'); setIsSidebarOpen(false); }}
                 title={doc.name}
                 className={`group flex items-center p-3 rounded-xl cursor-pointer transition-all border ${
-                  activeDocId === doc.id 
+                  activeDocId === doc.id && currentView === 'chat'
                     ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800 shadow-sm' 
                     : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 border-transparent'
                 } ${isSidebarCollapsed ? 'justify-center' : ''}`}
@@ -2321,7 +2661,7 @@ Output Format Requirements:
                 {!isSidebarCollapsed && (
                     <div className="flex-1 min-w-0 ml-3 animate-fadeIn">
                       <p className={`text-sm font-medium truncate ${
-                        activeDocId === doc.id ? 'text-primary-700 dark:text-primary-300' : 'text-gray-700 dark:text-gray-300'
+                        activeDocId === doc.id && currentView === 'chat' ? 'text-primary-700 dark:text-primary-300' : 'text-gray-700 dark:text-gray-300'
                       }`}>
                         {doc.name}
                       </p>
@@ -2373,7 +2713,9 @@ Output Format Requirements:
              <div className="flex items-center text-sm breadcrumbs text-gray-500 overflow-hidden">
                 <span className="font-medium text-gray-900 dark:text-white hidden sm:inline">Workspace</span>
                 <span className="mx-2 hidden sm:inline">/</span>
-                {activeDocId ? (
+                {currentView === 'calendar' ? (
+                     <span className="font-medium text-primary-600 dark:text-primary-400">Schedule</span>
+                ) : activeDocId ? (
                    <span className="text-primary-600 dark:text-primary-400 truncate max-w-[150px] sm:max-w-xs font-medium">
                      {documents.find(d => d.id === activeDocId)?.name}
                    </span>
@@ -2514,164 +2856,175 @@ Output Format Requirements:
           </div>
         )}
 
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth" id="chat-container">
-          <div className="max-w-4xl mx-auto space-y-6 pb-4">
-            
-            {/* Welcome State */}
-            {showWelcome && (
-              <div className="flex flex-col items-center justify-center py-10 md:py-20 text-center animate-fadeIn">
-                <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-tr from-primary-100 to-indigo-100 dark:from-primary-900/20 dark:to-indigo-900/20 rounded-3xl flex items-center justify-center mb-6 shadow-xl">
-                   <IconBot />
-                </div>
-                <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-3 px-4">
-                  How can I help you today?
-                </h2>
-                <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto text-base md:text-lg leading-relaxed px-4">
-                  Upload a lesson plan, rubric, or document to the left, or just ask me anything about pedagogy or curriculum design.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-8 w-full max-w-2xl px-4">
-                   {[
-                      'Create a 5E Lesson Plan', 
-                      'Generate Bloom\'s Taxonomy questions', 
-                      'Draft a rubric for this assignment', 
-                      'Create a quiz for 5th grade History'
-                   ].map((hint) => (
-                      <button 
-                        key={hint}
-                        onClick={() => { setInput(hint); }}
-                        className="p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-primary-400 dark:hover:border-primary-500 hover:shadow-md transition-all text-left text-sm font-medium text-gray-600 dark:text-gray-300"
-                      >
-                        {hint} →
-                      </button>
-                   ))}
-                </div>
-              </div>
-            )}
-
-            {/* Messages */}
-            {messages.map((msg) => (
-              <div 
-                key={msg.id} 
-                className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
-              >
-                {msg.role === 'model' && (
-                  <div className="hidden sm:flex w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-indigo-600 items-center justify-center flex-shrink-0 mt-1 shadow-md">
-                    <span className="text-white text-xs font-bold">AI</span>
-                  </div>
-                )}
-                
-                <div 
-                  className={`max-w-[95%] sm:max-w-[85%] rounded-2xl p-4 sm:p-5 shadow-sm ${
-                    msg.role === 'user' 
-                      ? 'bg-primary-600 text-white rounded-tr-sm' 
-                      : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-tl-sm text-gray-800 dark:text-gray-100'
-                  } ${msg.isError ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : ''}`}
-                >
-                  <div className="markdown-body">
-                    {msg.role === 'user' ? (
-                       <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">{msg.text}</p>
-                    ) : (
-                       <MarkdownContent content={msg.text} />
+        {/* Content Area Switcher */}
+        {currentView === 'calendar' ? (
+             <CalendarView 
+                events={events}
+                onAddEvent={() => setShowAddEventModal(true)}
+                onDeleteEvent={handleDeleteEvent}
+             />
+        ) : (
+             <>
+                {/* Chat Area */}
+                <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth" id="chat-container">
+                  <div className="max-w-4xl mx-auto space-y-6 pb-4">
+                    
+                    {/* Welcome State */}
+                    {showWelcome && (
+                      <div className="flex flex-col items-center justify-center py-10 md:py-20 text-center animate-fadeIn">
+                        <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-tr from-primary-100 to-indigo-100 dark:from-primary-900/20 dark:to-indigo-900/20 rounded-3xl flex items-center justify-center mb-6 shadow-xl">
+                           <IconBot />
+                        </div>
+                        <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-3 px-4">
+                          How can I help you today?
+                        </h2>
+                        <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto text-base md:text-lg leading-relaxed px-4">
+                          Upload a lesson plan, rubric, or document to the left, or just ask me anything about pedagogy or curriculum design.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-8 w-full max-w-2xl px-4">
+                           {[
+                              'Create a 5E Lesson Plan', 
+                              'Generate Bloom\'s Taxonomy questions', 
+                              'Draft a rubric for this assignment', 
+                              'Create a quiz for 5th grade History'
+                           ].map((hint) => (
+                              <button 
+                                key={hint}
+                                onClick={() => { setInput(hint); }}
+                                className="p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-primary-400 dark:hover:border-primary-500 hover:shadow-md transition-all text-left text-sm font-medium text-gray-600 dark:text-gray-300"
+                              >
+                                {hint} →
+                              </button>
+                           ))}
+                        </div>
+                      </div>
                     )}
-                  </div>
-                  
-                  {/* Message Actions */}
-                  {msg.role === 'model' && !msg.isError && (
-                    <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700/50">
-                      <button 
-                        onClick={() => handleCopy(msg.text)}
-                        className="text-xs flex items-center gap-1 text-gray-400 hover:text-primary-500 transition-colors px-2 py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
+        
+                    {/* Messages */}
+                    {messages.map((msg) => (
+                      <div 
+                        key={msg.id} 
+                        className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
                       >
-                        <IconCopy /> Copy
-                      </button>
-                      <div className="h-3 w-px bg-gray-200 dark:bg-gray-700 hidden sm:block"></div>
-                      <span className="text-xs text-gray-400 px-1 hidden sm:block">Download:</span>
-                      <button onClick={() => handleDownload(msg, 'doc')} className="text-xs font-medium text-blue-500 hover:underline px-2 py-1">DOC</button>
-                      <button onClick={() => handleDownload(msg, 'pdf')} className="text-xs font-medium text-red-500 hover:underline px-2 py-1">PDF</button>
-                      <button onClick={() => handleDownload(msg, 'txt')} className="text-xs font-medium text-gray-500 hover:underline px-2 py-1">TXT</button>
-                      {(msg.format === 'table' || msg.text.includes('|')) && (
-                          <button onClick={() => handleDownload(msg, 'csv')} className="text-xs font-medium text-green-500 hover:underline px-2 py-1">CSV (Sheet)</button>
-                      )}
-                    </div>
-                  )}
+                        {msg.role === 'model' && (
+                          <div className="hidden sm:flex w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-indigo-600 items-center justify-center flex-shrink-0 mt-1 shadow-md">
+                            <span className="text-white text-xs font-bold">AI</span>
+                          </div>
+                        )}
+                        
+                        <div 
+                          className={`max-w-[95%] sm:max-w-[85%] rounded-2xl p-4 sm:p-5 shadow-sm ${
+                            msg.role === 'user' 
+                              ? 'bg-primary-600 text-white rounded-tr-sm' 
+                              : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-tl-sm text-gray-800 dark:text-gray-100'
+                          } ${msg.isError ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : ''}`}
+                        >
+                          <div className="markdown-body">
+                            {msg.role === 'user' ? (
+                               <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">{msg.text}</p>
+                            ) : (
+                               <MarkdownContent content={msg.text} />
+                            )}
+                          </div>
+                          
+                          {/* Message Actions */}
+                          {msg.role === 'model' && !msg.isError && (
+                            <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                              <button 
+                                onClick={() => handleCopy(msg.text)}
+                                className="text-xs flex items-center gap-1 text-gray-400 hover:text-primary-500 transition-colors px-2 py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-700"
+                              >
+                                <IconCopy /> Copy
+                              </button>
+                              <div className="h-3 w-px bg-gray-200 dark:bg-gray-700 hidden sm:block"></div>
+                              <span className="text-xs text-gray-400 px-1 hidden sm:block">Download:</span>
+                              <button onClick={() => handleDownload(msg, 'doc')} className="text-xs font-medium text-blue-500 hover:underline px-2 py-1">DOC</button>
+                              <button onClick={() => handleDownload(msg, 'pdf')} className="text-xs font-medium text-red-500 hover:underline px-2 py-1">PDF</button>
+                              <button onClick={() => handleDownload(msg, 'txt')} className="text-xs font-medium text-gray-500 hover:underline px-2 py-1">TXT</button>
+                              {(msg.format === 'table' || msg.text.includes('|')) && (
+                                  <button onClick={() => handleDownload(msg, 'csv')} className="text-xs font-medium text-green-500 hover:underline px-2 py-1">CSV (Sheet)</button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+        
+                        {msg.role === 'user' && (
+                           <div className="hidden sm:flex w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 items-center justify-center flex-shrink-0 mt-1">
+                              <IconUser />
+                           </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {isLoading && (
+                      <div className="flex gap-4 justify-start animate-pulse">
+                         <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0 hidden sm:block"></div>
+                         <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 shadow-sm flex items-center gap-2">
+                            <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-75"></div>
+                            <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-150"></div>
+                         </div>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
                 </div>
-
-                {msg.role === 'user' && (
-                   <div className="hidden sm:flex w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 items-center justify-center flex-shrink-0 mt-1">
-                      <IconUser />
+        
+                {/* Input Area */}
+                <div className="p-4 md:p-6 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700 shrink-0 z-20">
+                   <div className="max-w-4xl mx-auto">
+                     {/* Format Selection Toolbar */}
+                     <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
+                       {FORMAT_OPTIONS.map(opt => (
+                         <button
+                           key={opt.id}
+                           onClick={() => setSelectedFormat(opt.id)}
+                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                              selectedFormat === opt.id
+                              ? 'bg-primary-600 text-white shadow-md shadow-primary-500/20'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 border border-transparent hover:border-gray-300 dark:hover:border-gray-600'
+                           }`}
+                         >
+                           {selectedFormat === opt.id && <IconFormat />}
+                           {opt.label}
+                         </button>
+                       ))}
+                     </div>
+        
+                     <div className="relative flex items-end gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-transparent transition-all">
+                        <textarea 
+                          value={input}
+                          onChange={(e) => setInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSend();
+                            }
+                          }}
+                          placeholder="Type a message..."
+                          className="w-full max-h-32 bg-transparent border-none focus:ring-0 resize-none py-3 px-3 text-sm dark:text-white placeholder-gray-400"
+                          rows={1}
+                          style={{ minHeight: '44px' }}
+                        />
+                        <button 
+                          onClick={handleSend}
+                          disabled={!input.trim() || isLoading}
+                          className="p-3 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-xl transition-all shadow-md disabled:shadow-none mb-0.5 shrink-0"
+                        >
+                          {isLoading ? (
+                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                          ) : (
+                             <IconSend />
+                          )}
+                        </button>
+                     </div>
+                     <p className="text-center text-[10px] md:text-xs text-gray-400 mt-2">
+                       AI can make mistakes. Verify important information.
+                     </p>
                    </div>
-                )}
-              </div>
-            ))}
-            
-            {isLoading && (
-              <div className="flex gap-4 justify-start animate-pulse">
-                 <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex-shrink-0 hidden sm:block"></div>
-                 <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 shadow-sm flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-75"></div>
-                    <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-150"></div>
-                 </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        {/* Input Area */}
-        <div className="p-4 md:p-6 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700 shrink-0 z-20">
-           <div className="max-w-4xl mx-auto">
-             {/* Format Selection Toolbar */}
-             <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
-               {FORMAT_OPTIONS.map(opt => (
-                 <button
-                   key={opt.id}
-                   onClick={() => setSelectedFormat(opt.id)}
-                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
-                      selectedFormat === opt.id
-                      ? 'bg-primary-600 text-white shadow-md shadow-primary-500/20'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 border border-transparent hover:border-gray-300 dark:hover:border-gray-600'
-                   }`}
-                 >
-                   {selectedFormat === opt.id && <IconFormat />}
-                   {opt.label}
-                 </button>
-               ))}
-             </div>
-
-             <div className="relative flex items-end gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-transparent transition-all">
-                <textarea 
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  placeholder="Type a message..."
-                  className="w-full max-h-32 bg-transparent border-none focus:ring-0 resize-none py-3 px-3 text-sm dark:text-white placeholder-gray-400"
-                  rows={1}
-                  style={{ minHeight: '44px' }}
-                />
-                <button 
-                  onClick={handleSend}
-                  disabled={!input.trim() || isLoading}
-                  className="p-3 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-xl transition-all shadow-md disabled:shadow-none mb-0.5 shrink-0"
-                >
-                  {isLoading ? (
-                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  ) : (
-                     <IconSend />
-                  )}
-                </button>
-             </div>
-             <p className="text-center text-[10px] md:text-xs text-gray-400 mt-2">
-               AI can make mistakes. Verify important information.
-             </p>
-           </div>
-        </div>
+                </div>
+             </>
+        )}
       </div>
     </div>
   );

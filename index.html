@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Edtech AI</title>
     
     <!-- Fonts -->
@@ -31,7 +31,14 @@
               accent: {
                 500: '#10b981',
                 600: '#059669',
+              },
+              neon: {
+                blue: '#00f3ff',
+                purple: '#bc13fe',
               }
+            },
+            screens: {
+              'xs': '475px',
             }
           }
         }
@@ -48,6 +55,9 @@
     <!-- Mammoth.js for DOCX -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     
+    <!-- Tesseract.js for OCR -->
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    
     <!-- Marked.js for Markdown Rendering -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
     
@@ -58,13 +68,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <style>
+      html, body, #root {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* Prevent body scroll */
+      }
+      
       body {
         font-family: 'Inter', sans-serif;
       }
+      
       /* Custom scrollbar for webkit */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
       }
       ::-webkit-scrollbar-track {
         background: transparent; 
@@ -81,6 +99,15 @@
       }
       .dark ::-webkit-scrollbar-thumb:hover {
         background: #64748b; 
+      }
+      
+      /* Hide scrollbar for clean horizontal scrolling */
+      .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+      }
+      .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
       }
       
       /* Markdown content styles */
