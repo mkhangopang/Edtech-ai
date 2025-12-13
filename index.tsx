@@ -7,18 +7,16 @@ import { createClient } from '@supabase/supabase-js';
 const ENV_URL = (import.meta as any).env?.VITE_SUPABASE_URL;
 const ENV_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
 
-// Check if keys are actually set (not placeholders or empty)
 const isSupabaseConfigured = ENV_URL && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key";
-
-// Initialize Supabase (Safe initialization even if keys are dummy, we just won't use it if !configured)
 const supabase = createClient(ENV_URL || "https://placeholder.supabase.co", ENV_KEY || "placeholder");
 
-// --- Constants & Storage Keys (For Local Fallback) ---
+// --- Constants & Storage Keys ---
 const STORAGE_KEYS = {
   USERS: 'edtech_users_v5', 
   SESSION: 'edtech_session_v5',
   DOCS_PREFIX: 'edtech_docs_v5_', 
   CHAT_PREFIX: 'edtech_chat_v5_',
+  EVENTS_PREFIX: 'edtech_events_v5_',
   SETTINGS: 'edtech_settings_v5',
   API_KEY: 'edtech_temp_key'
 };
@@ -43,12 +41,11 @@ const FORMAT_OPTIONS: { id: OutputFormat; label: string; instruction: string }[]
 ];
 
 // --- Types ---
-
 type PlanType = 'free' | 'pro' | 'campus';
 
 interface DocumentFile {
   id: string;
-  user_id: string; // Database column name
+  user_id: string;
   name: string;
   type: 'pdf' | 'docx' | 'txt';
   content: string;
@@ -63,12 +60,20 @@ interface Message {
   timestamp: number;
   isError?: boolean;
   suggestions?: Suggestion[]; 
+  isThinking?: boolean; 
 }
 
 interface Suggestion {
   label: string;
   action: 'quiz' | 'rubric' | 'chat';
   prompt?: string;
+}
+
+interface CalendarEvent {
+    id: string;
+    title: string;
+    date: string; // ISO date string YYYY-MM-DD
+    type: 'class' | 'deadline' | 'meeting';
 }
 
 type OutputFormat = 'auto' | 'report' | 'table' | 'concise' | 'step';
@@ -81,7 +86,6 @@ interface UserProfile {
   plan: PlanType;
 }
 
-// Global window extensions
 declare global {
   interface Window {
     pdfjsLib: any;
@@ -115,6 +119,7 @@ const IconKey = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5
 const IconSettings = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>;
 const IconCloud = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>;
 const IconOffline = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" /></svg>;
+const IconBrain = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>;
 
 // --- API LAYER (HYBRID) ---
 const api = {
@@ -147,8 +152,10 @@ const api = {
              localStorage.setItem(key, JSON.stringify(docs));
              return;
         }
-        const { error } = await supabase.from('documents').insert(doc);
-        if (error) throw error;
+        try {
+            const { error } = await supabase.from('documents').insert(doc);
+            if (error) console.error("Doc Save Error:", error);
+        } catch(e) { console.error("Doc Save Exception:", e); }
     },
 
     getDocs: async (userId: string): Promise<DocumentFile[]> => {
@@ -161,13 +168,21 @@ const api = {
         return data || [];
     },
 
-    // Chat History 
     saveChat: async (userId: string, messages: Message[]) => {
         if (!isSupabaseConfigured) {
              localStorage.setItem(`${STORAGE_KEYS.CHAT_PREFIX}${userId}`, JSON.stringify(messages));
              return;
         }
-        const { error } = await supabase.from('chats').upsert({ user_id: userId, messages: messages }, { onConflict: 'user_id' });
+        try {
+            const { data } = await supabase.from('chats').select('id').eq('user_id', userId).maybeSingle();
+            if (data) {
+                await supabase.from('chats').update({ messages }).eq('id', data.id);
+            } else {
+                await supabase.from('chats').insert({ user_id: userId, messages });
+            }
+        } catch (err) {
+            console.error("Chat sync failed (Tables might be missing):", err);
+        }
     },
 
     getChat: async (userId: string): Promise<Message[]> => {
@@ -179,12 +194,71 @@ const api = {
         return data?.messages || [];
     },
 
+    // --- ASYNC CALENDAR EVENTS (DB + Fallback) ---
+    getEvents: async (userId: string): Promise<CalendarEvent[]> => {
+        if (!isSupabaseConfigured) {
+            const str = localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`);
+            return str ? JSON.parse(str) : [];
+        }
+        try {
+            const { data, error } = await supabase.from('events').select('*').eq('user_id', userId);
+            // If table doesn't exist (error 404/42P01), fall back to local
+            if (error) throw error; 
+            return data || [];
+        } catch (e) {
+            // Quiet fail to local storage to prevent app crash if SQL wasn't run
+            const str = localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`);
+            return str ? JSON.parse(str) : [];
+        }
+    },
+
+    saveEvent: async (userId: string, event: CalendarEvent) => {
+        if (!isSupabaseConfigured) {
+            const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
+            current.push(event);
+            localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(current));
+            return;
+        }
+        try {
+            const { error } = await supabase.from('events').insert({
+                id: event.id,
+                user_id: userId,
+                title: event.title,
+                date: event.date,
+                type: event.type
+            });
+            if (error) throw error;
+        } catch (e) {
+            // Fallback
+            const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
+            current.push(event);
+            localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(current));
+        }
+    },
+    
+    deleteEvent: async (userId: string, eventId: string) => {
+        if(!isSupabaseConfigured) {
+             const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
+             const next = current.filter((e: CalendarEvent) => e.id !== eventId);
+             localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(next));
+             return;
+        }
+        try {
+            const { error } = await supabase.from('events').delete().eq('id', eventId);
+            if(error) throw error;
+        } catch(e) {
+             const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
+             const next = current.filter((e: CalendarEvent) => e.id !== eventId);
+             localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(next));
+        }
+    },
+
     // App Brain
     getMasterPrompt: async (): Promise<string> => {
         if (!isSupabaseConfigured) {
             return localStorage.getItem('edtech_master_prompt') || DEFAULT_SYSTEM_INSTRUCTION;
         }
-        const { data } = await supabase.from('system_settings').select('value').eq('key', 'master_prompt').single();
+        const { data } = await supabase.from('system_settings').select('value').eq('key', 'master_prompt').maybeSingle();
         return data?.value || DEFAULT_SYSTEM_INSTRUCTION;
     },
 
@@ -193,24 +267,50 @@ const api = {
             localStorage.setItem('edtech_master_prompt', prompt);
             return;
         }
-        const { error } = await supabase.from('system_settings').upsert({ key: 'master_prompt', value: prompt });
-        if (error) throw error;
+        try {
+            const { data } = await supabase.from('system_settings').select('key').eq('key', 'master_prompt').maybeSingle();
+            if(data) {
+                await supabase.from('system_settings').update({ value: prompt }).eq('key', 'master_prompt');
+            } else {
+                await supabase.from('system_settings').insert({ key: 'master_prompt', value: prompt });
+            }
+        } catch(e) { console.error("Settings Save Error:", e); alert("Failed to save settings to DB."); }
     },
 
-    // AI Generation
-    generateAI: async (apiKey: string, prompt: string, sys: string, hist: any[]) => {
+    getAllUsers: async (): Promise<UserProfile[]> => {
+        if (!isSupabaseConfigured) return [];
+        try {
+            const { data } = await supabase.from('profiles').select('*').order('joined_date', { ascending: false });
+            return data || [];
+        } catch { return []; }
+    },
+
+    // AI Generation (Streaming + Deep Think)
+    generateAIStream: async function* (apiKey: string, prompt: string, sys: string, hist: any[], useThinking: boolean) {
         const ai = new GoogleGenAI({ apiKey });
         const contents: Content[] = hist.map(msg => ({
             role: msg.role === 'user' ? 'user' : 'model',
             parts: [{ text: msg.text }]
         }));
         contents.push({ role: 'user', parts: [{ text: prompt }] });
-        const response = await ai.models.generateContent({
+        
+        const config: any = { systemInstruction: sys };
+        
+        // Deep Thinking Config (Gemini 2.5 Flash only)
+        if (useThinking) {
+            // Budget is token count for internal reasoning
+            config.thinkingConfig = { thinkingBudget: 4096 }; 
+        }
+
+        const result = await ai.models.generateContentStream({
             model: 'gemini-2.5-flash',
             contents: contents,
-            config: { systemInstruction: sys }
+            config: config
         });
-        return response.text || "No response generated.";
+
+        for await (const chunk of result) {
+            yield chunk.text; 
+        }
     }
 };
 
@@ -235,9 +335,7 @@ const extractTextFromDOCX = async (file: File): Promise<string> => {
   return result.value;
 };
 
-// Secure API Key Handling for Preview
 const getApiKey = (): string | null => {
-    // 1. Env Var (Production/Local Dev)
     if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
     if ((import.meta as any).env?.VITE_API_KEY) return (import.meta as any).env.VITE_API_KEY;
     return sessionStorage.getItem(STORAGE_KEYS.API_KEY);
@@ -269,8 +367,6 @@ const MarkdownContent = ({ content }: { content: string }) => {
   }, [content]);
   return <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed break-words" dangerouslySetInnerHTML={{ __html: html }} />;
 };
-
-// --- Modals ---
 
 const TermsModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
     if (!isOpen) return null;
@@ -321,13 +417,17 @@ const ApiKeyModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void
     );
 };
 
+// Admin Modal: Now with Brain Editing + User List
 const AdminSettingsModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () => void, user: UserProfile }) => {
     const [prompt, setPrompt] = useState('');
+    const [users, setUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState<'brain'|'users'>('brain');
 
     useEffect(() => {
         if (isOpen) {
             api.getMasterPrompt().then(setPrompt);
+            api.getAllUsers().then(setUsers);
         }
     }, [isOpen]);
 
@@ -336,9 +436,8 @@ const AdminSettingsModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClos
         try {
             await api.setMasterPrompt(prompt);
             alert("System Brain Updated!");
-            onClose();
         } catch(e) {
-            alert("Failed to update. Are you an admin?");
+            alert("Failed to update.");
         } finally {
             setLoading(false);
         }
@@ -350,20 +449,59 @@ const AdminSettingsModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClos
          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md p-4 animate-fadeIn">
             <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-700 h-[80vh] flex flex-col">
                 <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                    <h2 className="text-white font-bold flex items-center gap-2"><IconSettings /> App Brain (Admin Only)</h2>
+                    <h2 className="text-white font-bold flex items-center gap-2"><IconSettings /> Admin Console</h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white"><IconClose /></button>
                 </div>
-                <div className="flex-1 p-4">
-                     <textarea 
-                        value={prompt}
-                        onChange={e => setPrompt(e.target.value)}
-                        className="w-full h-full bg-black text-green-400 font-mono text-sm p-4 rounded border border-gray-700 outline-none resize-none"
-                     />
+                
+                {/* Tabs */}
+                <div className="flex border-b border-gray-700">
+                    <button onClick={() => setActiveTab('brain')} className={`px-6 py-3 text-sm font-medium ${activeTab === 'brain' ? 'text-white border-b-2 border-green-500' : 'text-gray-400 hover:text-white'}`}>App Brain</button>
+                    <button onClick={() => setActiveTab('users')} className={`px-6 py-3 text-sm font-medium ${activeTab === 'users' ? 'text-white border-b-2 border-green-500' : 'text-gray-400 hover:text-white'}`}>Users ({users.length})</button>
                 </div>
-                <div className="p-4 border-t border-gray-700 flex justify-end">
-                    <button onClick={handleSave} disabled={loading} className="px-6 py-2 bg-green-600 text-white font-bold rounded hover:bg-green-700">
-                        {loading ? 'Saving...' : 'Update Brain'}
-                    </button>
+
+                <div className="flex-1 p-4 overflow-hidden">
+                     {activeTab === 'brain' ? (
+                         <div className="h-full flex flex-col">
+                             <p className="text-gray-400 text-xs mb-2">Configure the master system instruction for all users.</p>
+                             <textarea 
+                                value={prompt}
+                                onChange={e => setPrompt(e.target.value)}
+                                className="flex-1 w-full bg-black text-green-400 font-mono text-sm p-4 rounded border border-gray-700 outline-none resize-none mb-4"
+                             />
+                             <div className="flex justify-end">
+                                <button onClick={handleSave} disabled={loading} className="px-6 py-2 bg-green-600 text-white font-bold rounded hover:bg-green-700">
+                                    {loading ? 'Saving...' : 'Update Brain'}
+                                </button>
+                             </div>
+                         </div>
+                     ) : (
+                         <div className="h-full overflow-y-auto">
+                            {!users.length ? (
+                                <p className="text-gray-500 p-4">No users found or RLS restricted.</p>
+                            ) : (
+                                 <table className="w-full text-sm text-left text-gray-400">
+                                     <thead className="text-xs text-gray-200 uppercase bg-gray-800">
+                                         <tr>
+                                             <th className="px-4 py-3">Name</th>
+                                             <th className="px-4 py-3">Email</th>
+                                             <th className="px-4 py-3">Plan</th>
+                                             <th className="px-4 py-3">Role</th>
+                                         </tr>
+                                     </thead>
+                                     <tbody>
+                                         {users.map(u => (
+                                             <tr key={u.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                                                 <td className="px-4 py-3 font-medium text-white">{u.full_name}</td>
+                                                 <td className="px-4 py-3">{u.email}</td>
+                                                 <td className="px-4 py-3"><span className={`px-2 py-1 rounded text-xs ${u.plan === 'free' ? 'bg-gray-700' : 'bg-purple-900 text-purple-200'}`}>{u.plan}</span></td>
+                                                 <td className="px-4 py-3">{u.role}</td>
+                                             </tr>
+                                         ))}
+                                     </tbody>
+                                 </table>
+                            )}
+                         </div>
+                     )}
                 </div>
             </div>
          </div>
@@ -439,16 +577,123 @@ const GeneratorModal = ({ title, icon, isOpen, onClose, children, onGenerate }: 
     );
 };
 
-// --- Main Chat Interface ---
+// --- Calendar View Component ---
+const CalendarView = ({ user }: { user: UserProfile }) => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [events, setEvents] = useState<CalendarEvent[]>([]);
+    const [newEventTitle, setNewEventTitle] = useState('');
+    const [selectedDate, setSelectedDate] = useState<number | null>(null);
+
+    // Fetch events on mount and when date changes (mock efficiency, just refetching all for now)
+    useEffect(() => {
+        const fetchEvents = async () => {
+            const data = await api.getEvents(user.id);
+            setEvents(data);
+        };
+        fetchEvents();
+    }, [user.id]);
+
+    const handleAddEvent = async () => {
+        if(!newEventTitle || !selectedDate) return;
+        const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), selectedDate);
+        // Correct date offset issue by using UTC string components or simple string concat
+        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2, '0')}-${String(selectedDate).padStart(2, '0')}`;
+        
+        const event: CalendarEvent = {
+            id: crypto.randomUUID(),
+            title: newEventTitle,
+            date: dateStr,
+            type: 'class'
+        };
+        
+        // Optimistic UI
+        setEvents([...events, event]);
+        await api.saveEvent(user.id, event);
+        
+        setNewEventTitle('');
+        setSelectedDate(null);
+    };
+
+    const handleDeleteEvent = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        if(confirm("Delete this event?")) {
+            setEvents(events.filter(ev => ev.id !== id));
+            await api.deleteEvent(user.id, id);
+        }
+    }
+
+    const getEventsForDay = (day: number) => {
+        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return events.filter(e => e.date === dateStr);
+    };
+    
+    return (
+        <div className="p-4 md:p-8 h-full overflow-y-auto">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Class Calendar</h1>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex justify-between items-center mb-6">
+                    <div className="flex gap-4 items-center">
+                        <h2 className="text-lg font-bold dark:text-white">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+                         <div className="flex gap-1">
+                            <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()-1))} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">←</button>
+                            <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()+1))} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">→</button>
+                         </div>
+                    </div>
+                    <button onClick={() => setCurrentDate(new Date())} className="text-sm text-primary-600">Today</button>
+                </div>
+                
+                {selectedDate && (
+                    <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg flex gap-2 animate-fadeIn">
+                        <input 
+                            value={newEventTitle} 
+                            onChange={e => setNewEventTitle(e.target.value)} 
+                            placeholder={`Event for ${currentDate.toLocaleString('default', {month:'short'})} ${selectedDate}...`}
+                            className="flex-1 bg-transparent border-b border-gray-300 dark:border-gray-700 outline-none text-sm dark:text-white"
+                            autoFocus
+                            onKeyDown={e => e.key === 'Enter' && handleAddEvent()}
+                        />
+                        <button onClick={handleAddEvent} className="text-xs bg-primary-600 text-white px-3 py-1 rounded">Add</button>
+                        <button onClick={() => setSelectedDate(null)} className="text-xs text-gray-500">Cancel</button>
+                    </div>
+                )}
+
+                <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                    {days.map(d => (
+                        <div key={d} className="bg-gray-50 dark:bg-gray-800 p-2 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{d}</div>
+                    ))}
+                    {Array.from({length: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate()}).map((_, i) => {
+                        const day = i + 1;
+                        const dayEvents = getEventsForDay(day);
+                        return (
+                            <div key={i} onClick={() => setSelectedDate(day)} className={`bg-white dark:bg-gray-800 p-2 min-h-[100px] hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer relative ${selectedDate === day ? 'ring-2 ring-inset ring-primary-500' : ''}`}>
+                                <span className="text-xs font-medium text-gray-400">{day}</span>
+                                <div className="mt-1 space-y-1">
+                                    {dayEvents.map(ev => (
+                                        <div key={ev.id} className="group relative text-[10px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded truncate pr-4">
+                                            {ev.title}
+                                            <button onClick={(e) => handleDeleteEvent(e, ev.id)} className="hidden group-hover:block absolute right-0 top-0 bottom-0 px-1 text-red-500 hover:bg-red-100">×</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const ChatInterface = ({ 
     activeDoc, messages, isThinking, onSendMessage, onClearChat, onClearContext, onSuggestionClick 
 }: any) => {
     const [input, setInput] = useState('');
+    const [useDeepThink, setUseDeepThink] = useState(false);
     const endRef = useRef<HTMLDivElement>(null);
     useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, isThinking]);
 
-    const handleSend = () => { if(input.trim()) { onSendMessage(input); setInput(''); } };
+    const handleSend = () => { if(input.trim()) { onSendMessage(input, 'auto', { useDeepThink }); setInput(''); } };
     
     return (
         <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative">
@@ -502,14 +747,22 @@ const ChatInterface = ({
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
                         placeholder="Type a message..."
-                        className="w-full pl-4 pr-12 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-primary-500 outline-none resize-none shadow-sm dark:text-white"
+                        className="w-full pl-10 pr-12 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-primary-500 outline-none resize-none shadow-sm dark:text-white"
                         rows={1}
                     />
+                    <button 
+                        onClick={() => setUseDeepThink(!useDeepThink)}
+                        className={`absolute left-3 bottom-3 transition-colors ${useDeepThink ? 'text-purple-500 animate-pulse' : 'text-gray-400 hover:text-purple-500'}`}
+                        title={useDeepThink ? "Deep Think Active (Slower, reasoned)" : "Enable Deep Think"}
+                    >
+                        <IconBrain />
+                    </button>
+                    {useDeepThink && <span className="absolute left-10 bottom-3.5 text-xs text-purple-500 font-bold pointer-events-none animate-fadeIn">Thinking Mode</span>}
                     <button onClick={handleSend} disabled={!input.trim() || isThinking} className="absolute right-2 bottom-2 p-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"><IconSend /></button>
                 </div>
                 <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide">
                     {FORMAT_OPTIONS.map(fmt => (
-                        <button key={fmt.id} onClick={() => onSendMessage(input || "Generate.", fmt.id)} className="text-xs px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 whitespace-nowrap">{fmt.label}</button>
+                        <button key={fmt.id} onClick={() => onSendMessage(input || "Generate.", fmt.id, { useDeepThink })} className="text-xs px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 whitespace-nowrap">{fmt.label}</button>
                     ))}
                 </div>
             </div>
@@ -528,20 +781,17 @@ const App = () => {
     const [isThinking, setIsThinking] = useState(false);
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     
-    // Auth State
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
     const [authLoading, setAuthLoading] = useState(false);
 
-    // Modals
     const [modalState, setModalState] = useState({
         pricing: false, rubric: false, lesson: false, assessment: false, event: false, settings: false, terms: false, apiKey: false
     });
 
     const [lessonCtx, setLessonCtx] = useState<string>(""); 
 
-    // Listen for Auth Changes
     useEffect(() => {
         if (isSupabaseConfigured) {
             const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -558,7 +808,6 @@ const App = () => {
             });
             return () => authListener.subscription.unsubscribe();
         } else {
-            // Local Fallback Check
             const init = async () => {
                 const profile = await api.getProfile();
                 setUser(profile);
@@ -576,7 +825,6 @@ const App = () => {
         setAuthLoading(true);
         try {
             if (!isSupabaseConfigured) {
-                // MOCK AUTH
                 const u: UserProfile = { 
                     id: 'local-user', 
                     email: email, 
@@ -611,48 +859,67 @@ const App = () => {
 
     const toggleModal = (key: keyof typeof modalState, val: boolean) => setModalState(prev => ({ ...prev, [key]: val }));
 
-    const handleSendMessage = async (text: string, formatId: OutputFormat = 'auto', opts: { useActiveDoc?: boolean, type?: string } = {}) => {
+    // UPDATED: Handle Streaming
+    const handleSendMessage = async (text: string, formatId: OutputFormat = 'auto', opts: { useActiveDoc?: boolean, type?: string, useDeepThink?: boolean } = {}) => {
         if (!user) return;
         
         const apiKey = getApiKey();
         if (!apiKey) { toggleModal('apiKey', true); return; }
 
         const newUserMsg: Message = { id: crypto.randomUUID(), role: 'user', text, timestamp: Date.now() };
-        const updatedMsgs = [...messages, newUserMsg];
-        setMessages(updatedMsgs);
-        api.saveChat(user.id, updatedMsgs); // Autosave
-        setIsThinking(true);
+        // Optimistically add user message
+        const intermediateMsgs = [...messages, newUserMsg];
+        setMessages(intermediateMsgs);
+        api.saveChat(user.id, intermediateMsgs);
+        
         setView('chat');
+        setIsThinking(true);
 
         const activeDoc = docs.find(d => d.id === activeDocId);
         const includeDoc = opts.useActiveDoc !== undefined ? opts.useActiveDoc : !!activeDocId;
         
         let sys = await api.getMasterPrompt(); 
-        
         if (includeDoc && activeDoc) sys += `\n\n=== CONTEXT: ${activeDoc.name} ===\n${activeDoc.content.substring(0, 30000)}`;
         const fmt = FORMAT_OPTIONS.find(f => f.id === formatId);
         if (fmt) sys += `\n\nFORMAT: ${fmt.instruction}`;
 
         try {
-            const resText = await api.generateAI(apiKey, text, sys, messages);
+            // Create a placeholder message for the AI
+            const aiMsgId = crypto.randomUUID();
+            let aiText = "";
+            // Initial AI message state (empty)
+            setMessages(prev => [...prev, { id: aiMsgId, role: 'model', text: "", timestamp: Date.now(), isThinking: true }]);
+
+            // Stream Loop
+            const stream = api.generateAIStream(apiKey, text, sys, intermediateMsgs, opts.useDeepThink || false);
             
-            // Smart Flow Logic
+            for await (const chunkText of stream) {
+                if(chunkText) {
+                    aiText += chunkText;
+                    setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: aiText, isThinking: false } : m));
+                    setIsThinking(false); // First chunk received, stop main thinking loader
+                }
+            }
+
+            // Post-generation logic (Suggestions)
             let suggestions: Suggestion[] = [];
             if (opts.type === 'lesson' || text.toLowerCase().includes('lesson plan')) {
                 suggestions = [
                     { label: "Create Quiz for this", action: 'quiz', prompt: `Create a quiz based on this lesson plan.` },
                     { label: "Generate Rubric", action: 'rubric' }
                 ];
-                setLessonCtx(resText);
+                setLessonCtx(aiText);
             } else if (opts.type === 'quiz' || text.toLowerCase().includes('quiz')) {
                 suggestions = [{ label: "Explain Answer Key", action: 'chat', prompt: "Explain the answer key in detail." }];
             }
 
-            const aiMsg: Message = { id: crypto.randomUUID(), role: 'model', text: resText, timestamp: Date.now(), suggestions };
-            const finalMsgs = [...updatedMsgs, aiMsg];
+            // Update final message with suggestions
+            const finalMsgs: Message[] = [...intermediateMsgs, { id: aiMsgId, role: 'model', text: aiText, timestamp: Date.now(), suggestions }];
             setMessages(finalMsgs);
             api.saveChat(user.id, finalMsgs);
-        } catch {
+
+        } catch (e) {
+            console.error(e);
             setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: "Error connecting to AI. Please check your API key.", timestamp: Date.now(), isError: true }]);
         } finally {
             setIsThinking(false);
@@ -821,6 +1088,8 @@ const App = () => {
                          </div>
                      </div>
                  )}
+                 
+                 {view === 'calendar' && <CalendarView user={user} />}
 
                  {view === 'chat' && (
                      <ChatInterface 
