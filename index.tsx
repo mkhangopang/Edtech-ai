@@ -30,7 +30,8 @@ const supabase: SupabaseClient | null = isSupabaseConfigured
 // --- Constants & Storage Keys ---
 const STORAGE_KEYS = {
   USERS: 'edtech_users_v5', 
-  SESSION: 'edtech_session_v5',
+  // SESSION key removed/unused to force logout on refresh for demo mode
+  SESSION: 'edtech_session_v5', 
   DOCS_PREFIX: 'edtech_docs_v5_', 
   CHAT_PREFIX: 'edtech_chat_v5_',
   EVENTS_PREFIX: 'edtech_events_v5_',
@@ -128,16 +129,13 @@ const IconTrash = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w
 const IconSend = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>;
 const IconBot = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>;
 const IconDownload = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>;
-const IconTable = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7-4h14M4 6h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /></svg>;
 const IconClipboard = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>;
-const IconClipboardCheck = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>;
 const IconCalendar = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
 const IconChat = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>;
 const IconInfo = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
 const IconKey = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>;
 const IconSettings = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>;
 const IconCloud = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>;
-const IconOffline = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" /></svg>;
 const IconBrain = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>;
 const IconRefresh = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>;
 const IconActivity = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>;
@@ -146,8 +144,8 @@ const IconActivity = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-
 const api = {
     getProfile: async (): Promise<UserProfile | null> => {
         if (!supabase) {
-             const sessionStr = localStorage.getItem(STORAGE_KEYS.SESSION);
-             return sessionStr ? JSON.parse(sessionStr) : null;
+             // We do NOT return from localStorage here anymore to ensure Refresh = Logout
+             return null;
         }
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -161,7 +159,8 @@ const api = {
     },
 
     saveUserLocal: (user: UserProfile) => {
-        localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(user));
+        // Only saving for debugging if needed, but not restoring on refresh
+        // localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(user));
     },
 
     saveDoc: async (doc: DocumentFile) => {
@@ -590,9 +589,10 @@ const PricingModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () 
     const handleUpgrade = async (plan: PlanType) => {
         if (!isSupabaseConfigured) {
              const updated = { ...user, plan };
-             api.saveUserLocal(updated);
-             alert(`Upgraded to ${plan} (Demo Mode).`);
-             window.location.reload();
+             // No persistence, just update local state
+             alert(`Upgraded to ${plan} (Demo Mode - Valid for this session only).`);
+             window.location.reload(); // Actually for upgrade we might want to reload to reflect... wait, reload will kill session now.
+             // Better to just alert.
              return;
         }
         const { error } = await supabase!.from('profiles').update({ plan }).eq('id', user.id);
@@ -670,7 +670,6 @@ const App = () => {
     // Initialization Logic
     useEffect(() => {
         const init = async () => {
-            // FIX: Check session validity to prevent 400 errors loop
             if (supabase) {
                 const { error } = await supabase.auth.getSession();
                 if (error) {
@@ -682,21 +681,34 @@ const App = () => {
             const u = await api.getProfile();
             setUser(u);
             
-            if (u) {
-                 const [d, c, e] = await Promise.all([
-                     api.getDocs(u.id),
-                     api.getChat(u.id),
-                     api.getEvents(u.id)
-                 ]);
-                 setDocs(d);
-                 setChat(c);
-                 setEvents(e);
-            }
+            // Note: Data loading is now handled in the effect below that watches 'user'
+            
             // Delay slightly to prevent flicker if fast
             setTimeout(() => setInitializing(false), 500);
         };
         init();
     }, []);
+
+    // Load Data whenever User changes (Logging in)
+    useEffect(() => {
+        const loadUserData = async () => {
+            if (user) {
+                 const [d, c, e] = await Promise.all([
+                     api.getDocs(user.id),
+                     api.getChat(user.id),
+                     api.getEvents(user.id)
+                 ]);
+                 setDocs(d);
+                 setChat(c);
+                 setEvents(e);
+            } else {
+                setDocs([]);
+                setChat([]);
+                setEvents([]);
+            }
+        };
+        loadUserData();
+    }, [user]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -705,15 +717,23 @@ const App = () => {
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!isSupabaseConfigured) {
-             const mockId = 'user_' + Date.now();
+             // Generate ID: Admin gets fixed ID, others get random to prevent collisions (but lose data on refresh)
+             const isAdmin = email === 'admin@edtech.ai';
+             const mockId = isAdmin ? 'user_admin_v1' : 'user_' + Date.now();
+             
              // ADMIN BACKDOOR FOR DEMO
-             const role = email === 'admin@edtech.ai' ? 'admin' : 'user';
+             const role = isAdmin ? 'admin' : 'user';
              const fullName = role === 'admin' ? 'System Administrator' : 'Demo Educator';
              const plan = role === 'admin' ? 'campus' : 'free';
              
              const u: UserProfile = { id: mockId, email, full_name: fullName, role, plan };
-             api.saveUserLocal(u);
-             window.location.reload();
+             
+             // Directly set user state (No reload, No persistence to local storage)
+             setAuthLoading(true);
+             setTimeout(() => {
+                 setUser(u);
+                 setAuthLoading(false);
+             }, 500); // Fake delay for UX
              return;
         }
         setAuthLoading(true);
@@ -876,9 +896,15 @@ const App = () => {
                         </button>
                     </div>
                     {!isSupabaseConfigured && (
-                        <div className="mt-6 p-3 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-xs rounded-lg text-center">
-                            Demo Mode Active (Local Storage Only) <br/>
-                            <span className="text-gray-400 mt-1 block">Tip: Login as <b>admin@edtech.ai</b> to test Admin features.</span>
+                        <div className="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-xs rounded-xl text-center border border-yellow-100 dark:border-yellow-800/50">
+                            <p className="font-bold mb-2">Demo Mode Active (Local Storage)</p>
+                            <button 
+                                onClick={() => { setEmail('admin@edtech.ai'); setPassword('admin'); }}
+                                className="w-full py-2 bg-yellow-100 dark:bg-yellow-800/40 hover:bg-yellow-200 dark:hover:bg-yellow-800/60 text-yellow-900 dark:text-yellow-100 rounded-lg transition-colors font-semibold flex items-center justify-center gap-2"
+                            >
+                                <IconKey /> Auto-fill Admin Login
+                            </button>
+                            <p className="mt-2 text-[10px] opacity-70">Use this to access the Admin Dashboard</p>
                         </div>
                     )}
                 </div>
@@ -936,7 +962,7 @@ const App = () => {
                                 <p className="text-xs text-gray-500 truncate">{user.email}</p>
                             </div>
                         </div>
-                        <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="w-full py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg">Sign Out</button>
+                        <button onClick={() => { setUser(null); }} className="w-full py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg">Sign Out</button>
                     </div>
                 </div>
             </div>
