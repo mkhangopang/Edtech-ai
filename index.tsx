@@ -20,6 +20,7 @@ const ENV_KEY = getEnv('VITE_SUPABASE_ANON_KEY');
 
 // Enhanced check to ensure URL is actually a URL
 const isSupabaseConfigured = !!(ENV_URL && ENV_URL.startsWith('http') && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key");
+const hasConfiguredApiKey = !!(getEnv('API_KEY') || getEnv('VITE_API_KEY'));
 
 // Prevent initializing client with bad data to avoid network timeouts/errors
 const supabase: SupabaseClient | null = isSupabaseConfigured 
@@ -39,7 +40,9 @@ const STORAGE_KEYS = {
 
 const DEFAULT_SYSTEM_INSTRUCTION = `
 ROLE: You are "Edtech AI", an elite pedagogical consultant.
-CORE DIRECTIVES: Apply Bloom's Taxonomy, 5E Model, and UbD.
+CORE DIRECTIVES: Apply Bloom's Taxonomy, 5E Model, and UbD (Understanding by Design).
+TONE: Professional, encouraging, and highly structured.
+TASK: Assist educators in creating lesson plans, rubrics, and assessments.
 `.trim();
 
 const PLAN_LIMITS = {
@@ -136,6 +139,8 @@ const IconSettings = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-
 const IconCloud = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>;
 const IconOffline = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" /></svg>;
 const IconBrain = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>;
+const IconRefresh = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>;
+const IconActivity = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>;
 
 // --- API LAYER (HYBRID) ---
 const api = {
@@ -445,7 +450,7 @@ const AdminSettingsModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClos
     const [prompt, setPrompt] = useState('');
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<'brain'|'users'>('brain');
+    const [activeTab, setActiveTab] = useState<'brain'|'users'|'health'>('brain');
 
     useEffect(() => {
         if (isOpen) {
@@ -458,7 +463,7 @@ const AdminSettingsModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClos
         setLoading(true);
         try {
             await api.setMasterPrompt(prompt);
-            alert("System Brain Updated!");
+            alert("App Brain Updated Successfully!");
         } catch(e) {
             alert("Failed to update.");
         } finally {
@@ -466,63 +471,112 @@ const AdminSettingsModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClos
         }
     };
 
+    const handleReset = () => {
+        if(confirm("Reset Brain to factory defaults?")) setPrompt(DEFAULT_SYSTEM_INSTRUCTION);
+    };
+
     if (!isOpen) return null;
 
     return (
          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md p-4 animate-fadeIn">
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-700 h-[80vh] flex flex-col">
-                <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                    <h2 className="text-white font-bold flex items-center gap-2"><IconSettings /> Admin Console</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white"><IconClose /></button>
+            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-5xl border border-gray-700 h-[85vh] flex flex-col overflow-hidden">
+                <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
+                    <h2 className="text-white font-bold flex items-center gap-2 text-lg">
+                        <IconSettings /> 
+                        Admin Control Center
+                        <span className="text-xs bg-red-900 text-red-200 px-2 py-0.5 rounded ml-2">SUPERUSER</span>
+                    </h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white p-2 rounded hover:bg-gray-700"><IconClose /></button>
                 </div>
                 
                 {/* Tabs */}
-                <div className="flex border-b border-gray-700">
-                    <button onClick={() => setActiveTab('brain')} className={`px-6 py-3 text-sm font-medium ${activeTab === 'brain' ? 'text-white border-b-2 border-green-500' : 'text-gray-400 hover:text-white'}`}>App Brain</button>
-                    <button onClick={() => setActiveTab('users')} className={`px-6 py-3 text-sm font-medium ${activeTab === 'users' ? 'text-white border-b-2 border-green-500' : 'text-gray-400 hover:text-white'}`}>Users ({users.length})</button>
+                <div className="flex border-b border-gray-700 bg-gray-900">
+                    <button onClick={() => setActiveTab('brain')} className={`px-6 py-3 text-sm font-medium transition-colors ${activeTab === 'brain' ? 'text-white border-b-2 border-green-500 bg-gray-800' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                        <div className="flex items-center gap-2"><IconBrain /> App Brain</div>
+                    </button>
+                    <button onClick={() => setActiveTab('users')} className={`px-6 py-3 text-sm font-medium transition-colors ${activeTab === 'users' ? 'text-white border-b-2 border-green-500 bg-gray-800' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                        Users ({users.length})
+                    </button>
+                    <button onClick={() => setActiveTab('health')} className={`px-6 py-3 text-sm font-medium transition-colors ${activeTab === 'health' ? 'text-white border-b-2 border-green-500 bg-gray-800' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+                        <div className="flex items-center gap-2"><IconActivity /> System Health</div>
+                    </button>
                 </div>
 
-                <div className="flex-1 p-4 overflow-hidden">
+                <div className="flex-1 p-6 overflow-hidden bg-gray-900">
                      {activeTab === 'brain' ? (
                          <div className="h-full flex flex-col">
-                             <p className="text-gray-400 text-xs mb-2">Configure the master system instruction for all users.</p>
+                             <div className="mb-4 flex justify-between items-start">
+                                 <div>
+                                     <h3 className="text-green-400 font-bold mb-1">Master Prompt Configuration</h3>
+                                     <p className="text-gray-400 text-xs">This logic governs the entire AI personality and pedagogical approach for all users.</p>
+                                 </div>
+                                 <button onClick={handleReset} className="text-xs text-gray-500 hover:text-white flex items-center gap-1 px-3 py-1 border border-gray-700 rounded hover:bg-gray-800">
+                                     <IconRefresh /> Reset Default
+                                 </button>
+                             </div>
                              <textarea 
                                 value={prompt}
                                 onChange={e => setPrompt(e.target.value)}
-                                className="flex-1 w-full bg-black text-green-400 font-mono text-sm p-4 rounded border border-gray-700 outline-none resize-none mb-4"
+                                className="flex-1 w-full bg-black text-green-400 font-mono text-sm p-4 rounded-lg border border-gray-700 outline-none resize-none mb-4 focus:border-green-600 transition-colors shadow-inner"
+                                spellCheck={false}
                              />
-                             <div className="flex justify-end">
-                                <button onClick={handleSave} disabled={loading} className="px-6 py-2 bg-green-600 text-white font-bold rounded hover:bg-green-700">
-                                    {loading ? 'Saving...' : 'Update Brain'}
+                             <div className="flex justify-end gap-3">
+                                <button onClick={onClose} className="px-6 py-2 text-gray-400 hover:text-white">Cancel</button>
+                                <button onClick={handleSave} disabled={loading} className="px-6 py-2 bg-green-600 text-white font-bold rounded hover:bg-green-700 shadow-lg shadow-green-900/50 transition-all active:scale-95">
+                                    {loading ? 'Deploying...' : 'Deploy to Production'}
                                 </button>
                              </div>
                          </div>
-                     ) : (
+                     ) : activeTab === 'users' ? (
                          <div className="h-full overflow-y-auto">
                             {!users.length ? (
-                                <p className="text-gray-500 p-4">No users found or RLS restricted.</p>
+                                <p className="text-gray-500 p-4 border border-dashed border-gray-700 rounded-lg text-center">No users found or RLS restricted.</p>
                             ) : (
-                                 <table className="w-full text-sm text-left text-gray-400">
-                                     <thead className="text-xs text-gray-200 uppercase bg-gray-800">
-                                         <tr>
-                                             <th className="px-4 py-3">Name</th>
-                                             <th className="px-4 py-3">Email</th>
-                                             <th className="px-4 py-3">Plan</th>
-                                             <th className="px-4 py-3">Role</th>
-                                         </tr>
-                                     </thead>
-                                     <tbody>
-                                         {users.map(u => (
-                                             <tr key={u.id} className="border-b border-gray-800 hover:bg-gray-800/50">
-                                                 <td className="px-4 py-3 font-medium text-white">{u.full_name}</td>
-                                                 <td className="px-4 py-3">{u.email}</td>
-                                                 <td className="px-4 py-3"><span className={`px-2 py-1 rounded text-xs ${u.plan === 'free' ? 'bg-gray-700' : 'bg-purple-900 text-purple-200'}`}>{u.plan}</span></td>
-                                                 <td className="px-4 py-3">{u.role}</td>
+                                 <div className="border border-gray-700 rounded-lg overflow-hidden">
+                                     <table className="w-full text-sm text-left text-gray-400">
+                                         <thead className="text-xs text-gray-200 uppercase bg-gray-800">
+                                             <tr>
+                                                 <th className="px-4 py-3">User</th>
+                                                 <th className="px-4 py-3">Email</th>
+                                                 <th className="px-4 py-3">Plan</th>
+                                                 <th className="px-4 py-3">Role</th>
                                              </tr>
-                                         ))}
-                                     </tbody>
-                                 </table>
+                                         </thead>
+                                         <tbody>
+                                             {users.map(u => (
+                                                 <tr key={u.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                                                     <td className="px-4 py-3 font-medium text-white">{u.full_name}</td>
+                                                     <td className="px-4 py-3">{u.email}</td>
+                                                     <td className="px-4 py-3"><span className={`px-2 py-1 rounded text-xs ${u.plan === 'free' ? 'bg-gray-700' : 'bg-purple-900 text-purple-200'}`}>{u.plan}</span></td>
+                                                     <td className="px-4 py-3">
+                                                         <span className={`px-2 py-1 rounded text-xs ${u.role === 'admin' ? 'bg-red-900 text-red-200' : 'bg-gray-700'}`}>{u.role}</span>
+                                                     </td>
+                                                 </tr>
+                                             ))}
+                                         </tbody>
+                                     </table>
+                                 </div>
                             )}
+                         </div>
+                     ) : (
+                         <div className="h-full overflow-y-auto p-4">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                 <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                                     <h4 className="text-gray-400 text-xs uppercase font-bold mb-2">Storage Status</h4>
+                                     <div className="text-2xl font-bold text-white">{isSupabaseConfigured ? 'Remote (Supabase)' : 'Local (Browser)'}</div>
+                                     <p className="text-xs text-gray-500 mt-1">Data persistence layer.</p>
+                                 </div>
+                                 <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                                     <h4 className="text-gray-400 text-xs uppercase font-bold mb-2">API Configuration</h4>
+                                     <div className="text-2xl font-bold text-white">{hasConfiguredApiKey ? 'Managed (Server)' : 'User Provided'}</div>
+                                     <p className="text-xs text-gray-500 mt-1">Key injection method.</p>
+                                 </div>
+                                 <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                                     <h4 className="text-gray-400 text-xs uppercase font-bold mb-2">Brain Revision</h4>
+                                     <div className="text-2xl font-bold text-white">v{prompt.length}</div>
+                                     <p className="text-xs text-gray-500 mt-1">Total characters in Master Prompt.</p>
+                                 </div>
+                             </div>
                          </div>
                      )}
                 </div>
@@ -652,7 +706,12 @@ const App = () => {
         e.preventDefault();
         if (!isSupabaseConfigured) {
              const mockId = 'user_' + Date.now();
-             const u: UserProfile = { id: mockId, email, full_name: 'Demo User', role: 'user', plan: 'free' };
+             // ADMIN BACKDOOR FOR DEMO
+             const role = email === 'admin@edtech.ai' ? 'admin' : 'user';
+             const fullName = role === 'admin' ? 'System Administrator' : 'Demo Educator';
+             const plan = role === 'admin' ? 'campus' : 'free';
+             
+             const u: UserProfile = { id: mockId, email, full_name: fullName, role, plan };
              api.saveUserLocal(u);
              window.location.reload();
              return;
@@ -818,7 +877,8 @@ const App = () => {
                     </div>
                     {!isSupabaseConfigured && (
                         <div className="mt-6 p-3 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-xs rounded-lg text-center">
-                            Demo Mode Active (Local Storage Only)
+                            Demo Mode Active (Local Storage Only) <br/>
+                            <span className="text-gray-400 mt-1 block">Tip: Login as <b>admin@edtech.ai</b> to test Admin features.</span>
                         </div>
                     )}
                 </div>
@@ -853,9 +913,11 @@ const App = () => {
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${user.plan === 'pro' ? 'bg-purple-100 text-purple-600' : 'bg-gray-200 text-gray-600'}`}>{user.plan}</span>
                                 <span className="text-sm">Upgrade Plan</span>
                             </button>
-                            <button onClick={() => setShowApiKey(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
-                                <IconKey /> <span className="text-sm">API Key</span>
-                            </button>
+                            {!hasConfiguredApiKey && (
+                                <button onClick={() => setShowApiKey(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                    <IconKey /> <span className="text-sm">API Key</span>
+                                </button>
+                            )}
                             {user.role === 'admin' && (
                                 <button onClick={() => setShowAdmin(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
                                     <IconSettings /> <span className="text-sm">Admin</span>
