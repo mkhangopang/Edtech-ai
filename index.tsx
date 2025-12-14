@@ -1,76 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI, Content } from "@google/genai";
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-
-// --- CONFIGURATION & HYBRID FALLBACK ---
-const getEnv = (key: string) => {
-    try {
-        // @ts-ignore
-        if (typeof import.meta !== 'undefined' && import.meta.env) return import.meta.env[key];
-    } catch(e) {}
-    try {
-        if (typeof process !== 'undefined' && process.env) return process.env[key];
-    } catch(e) {}
-    return undefined;
-}
-
-const ENV_URL = getEnv('VITE_SUPABASE_URL');
-const ENV_KEY = getEnv('VITE_SUPABASE_ANON_KEY');
-
-// Enhanced check to ensure URL is actually a URL
-const isSupabaseConfigured = !!(ENV_URL && ENV_URL.startsWith('http') && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key");
-const hasConfiguredApiKey = !!(getEnv('API_KEY') || getEnv('VITE_API_KEY'));
-
-// Prevent initializing client with bad data to avoid network timeouts/errors
-const supabase: SupabaseClient | null = isSupabaseConfigured 
-    ? createClient(ENV_URL!, ENV_KEY!) 
-    : null;
-
-// --- Constants & Storage Keys ---
-const STORAGE_KEYS = {
-  USERS: 'edtech_users_v5', 
-  // SESSION key removed/unused to force logout on refresh for demo mode
-  SESSION: 'edtech_session_v5', 
-  DOCS_PREFIX: 'edtech_docs_v5_', 
-  CHAT_PREFIX: 'edtech_chat_v5_',
-  EVENTS_PREFIX: 'edtech_events_v5_',
-  SETTINGS: 'edtech_settings_v5',
-  API_KEY: 'edtech_temp_key'
-};
-
-const DEFAULT_SYSTEM_INSTRUCTION = `
-ROLE: You are "Edtech AI", an elite pedagogical consultant.
-CORE DIRECTIVES: Apply Bloom's Taxonomy, 5E Model, and UbD (Understanding by Design).
-TONE: Professional, encouraging, and highly structured.
-TASK: Assist educators in creating lesson plans, rubrics, and assessments.
-`.trim();
-
-const PLAN_LIMITS = {
-  free: { maxDocs: 1, maxSizeMB: 5, label: 'Free Tier' },
-  pro: { maxDocs: 10, maxSizeMB: 20, label: 'Educator Pro' },
-  campus: { maxDocs: 999, maxSizeMB: 50, label: 'Campus Plan' }
-};
-
-const FORMAT_OPTIONS: { id: OutputFormat; label: string; instruction: string }[] = [
-  { id: 'auto', label: 'Auto', instruction: "Answer naturally." },
-  { id: 'report', label: 'Report', instruction: "Professional report format with H1/H2." },
-  { id: 'table', label: 'Table', instruction: "Markdown table format." },
-  { id: 'concise', label: 'Concise', instruction: "Brief summary (BLUF)." },
-  { id: 'step', label: 'Steps', instruction: "Numbered step-by-step guide." }
-];
+import { GoogleGenAI } from "@google/genai";
 
 // --- Types ---
 type PlanType = 'free' | 'pro' | 'campus';
 
 interface DocumentFile {
   id: string;
-  user_id: string;
   name: string;
   type: 'pdf' | 'docx' | 'txt';
-  content: string;
+  content: string; // Extracted text
   size: number;
-  created_at?: number;
+  uploadDate: number;
 }
 
 interface Message {
@@ -79,33 +20,51 @@ interface Message {
   text: string;
   timestamp: number;
   isError?: boolean;
-  suggestions?: Suggestion[]; 
-  isThinking?: boolean; 
-}
-
-interface Suggestion {
-  label: string;
-  action: 'quiz' | 'rubric' | 'chat';
-  prompt?: string;
-}
-
-interface CalendarEvent {
-    id: string;
-    title: string;
-    date: string; // ISO date string YYYY-MM-DD
-    type: 'class' | 'deadline' | 'meeting';
+  format?: OutputFormat;
 }
 
 type OutputFormat = 'auto' | 'report' | 'table' | 'concise' | 'step';
 
-interface UserProfile {
+interface User {
   id: string;
   email: string;
-  full_name: string;
+  password: string;
+  name: string;
   role: 'user' | 'admin';
   plan: PlanType;
+  joinedDate: number;
 }
 
+interface RubricConfig {
+  assignment: string;
+  gradeLevel: string;
+  scale: '3' | '4' | '5';
+  bloomsLevel: string;
+  objectives: string;
+  useActiveDoc: boolean;
+}
+
+interface LessonConfig {
+  templateId: string;
+  topic: string;
+  gradeLevel: string;
+  duration: string;
+  objectives: string;
+  standards: string;
+  useActiveDoc: boolean;
+}
+
+interface AssessmentConfig {
+  type: 'mixed' | 'mcq' | 'srq' | 'erq';
+  topic: string;
+  gradeLevel: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  count: number;
+  includeKey: boolean;
+  useActiveDoc: boolean;
+}
+
+// Global window extensions for CDN libraries
 declare global {
   interface Window {
     pdfjsLib: any;
@@ -115,226 +74,111 @@ declare global {
   }
 }
 
-// --- Icons ---
+// --- Constants ---
+const PLAN_LIMITS = {
+  free: { maxDocs: 1, maxSizeMB: 5, label: 'Free Tier' },
+  pro: { maxDocs: 10, maxSizeMB: 20, label: 'Educator Pro' },
+  campus: { maxDocs: 999, maxSizeMB: 50, label: 'Campus Plan' }
+};
+
+// CORE MASTER PROMPT
+const DEFAULT_MASTER_PROMPT = `
+ROLE: You are "Edtech AI", an elite pedagogical consultant and educational content specialist.
+CORE DIRECTIVES:
+1. EDUCATIONAL EXPERTISE: Always apply best practices from Bloom's Taxonomy, the 5E Instructional Model, and Understanding by Design (UbD).
+2. CONTEXT AWARENESS: When a document is provided, strictly ground your answers in that source material unless explicitly asked for outside knowledge.
+3. FORMATTING: Use professional, structured formatting. Use bolding for key terms, lists for steps, and clear headings.
+4. TONE: Professional, encouraging, and academically rigorous yet accessible.
+5. SAFETY: Do not generate content that promotes academic dishonesty (like writing full essays for students to submit as their own) or unsafe classroom practices.
+
+SPECIFIC OUTPUT RULES:
+- If generating a Rubric: Use a table format.
+- If generating a Quiz: Include an answer key at the bottom.
+- If summarizing: Use the "Bottom Line Up Front" (BLUF) method.
+`.trim();
+
+const STORAGE_KEYS = {
+  USERS: 'edtech_users_v5',
+  SESSION: 'edtech_session_v5',
+  PROMPT: 'edtech_prompt_v5',
+  STATS: 'edtech_stats_v5',
+  DOCS_PREFIX: 'edtech_docs_v5_' // Suffix with userID
+};
+
+const BLOOMS_LEVELS = [
+  { id: 'Remembering', label: 'Remembering (Recall facts)' },
+  { id: 'Understanding', label: 'Understanding (Explain ideas)' },
+  { id: 'Applying', label: 'Applying (Use information)' },
+  { id: 'Analyzing', label: 'Analyzing (Draw connections)' },
+  { id: 'Evaluating', label: 'Evaluating (Justify a stand)' },
+  { id: 'Creating', label: 'Creating (Produce original work)' },
+  { id: 'Mixed', label: 'Mixed / Varied Levels' }
+];
+
+const LESSON_TEMPLATES = [
+  { 
+    id: '5e', 
+    name: '5E Instructional Model', 
+    description: 'Inquiry-based: Engage, Explore, Explain, Elaborate, Evaluate.',
+    sections: ['Engage', 'Explore', 'Explain', 'Elaborate', 'Evaluate'] 
+  },
+  { 
+    id: 'direct', 
+    name: 'Direct Instruction', 
+    description: 'Classic structure: Objectives, Modeling, Guided & Independent Practice.',
+    sections: ['Anticipatory Set', 'Direct Instruction', 'Guided Practice', 'Independent Practice', 'Closure'] 
+  },
+  { 
+    id: 'ubd', 
+    name: 'Understanding by Design (UbD)', 
+    description: 'Backward design focusing on desired results and evidence.',
+    sections: ['Desired Results', 'Assessment Evidence', 'Learning Plan'] 
+  }
+];
+
+// --- Icons (SVG) ---
 const IconMenu = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>;
 const IconClose = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>;
 const IconUpload = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>;
 const IconFile = ({ type }: { type: string }) => {
-  let c = "text-gray-400";
-  if (type === 'pdf') c = "text-red-400";
-  if (type === 'docx') c = "text-blue-400";
-  return <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${c}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 011.414.586l5.414 5.414a1 1 0 01.586 1.414V19a2 2 0 01-2 2z" /></svg>;
+  let colorClass = "text-gray-400";
+  if (type === 'pdf') colorClass = "text-red-400";
+  if (type === 'docx') colorClass = "text-blue-400";
+  return <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${colorClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 011.414.586l5.414 5.414a1 1 0 01.586 1.414V19a2 2 0 01-2 2z" /></svg>;
 };
 const IconTrash = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>;
+const IconSettings = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>;
+const IconCpu = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>;
+const IconLock = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>;
+const IconUnlock = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z" /></svg>;
 const IconSend = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>;
+const IconMoon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" /></svg>;
+const IconSun = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" /></svg>;
 const IconBot = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>;
 const IconDownload = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>;
+const IconCopy = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>;
+const IconFormat = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" /></svg>;
+const IconLogout = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" /></svg>;
+const IconUser = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>;
+const IconShield = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>;
+const IconTable = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7-4h14M4 6h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" /></svg>;
 const IconClipboard = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>;
-const IconCalendar = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
-const IconChat = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>;
-const IconInfo = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-const IconKey = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>;
-const IconSettings = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>;
-const IconCloud = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>;
-const IconBrain = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>;
-const IconRefresh = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>;
-const IconActivity = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>;
-
-// --- API LAYER (HYBRID) ---
-const api = {
-    getProfile: async (): Promise<UserProfile | null> => {
-        if (!supabase) {
-             // We do NOT return from localStorage here anymore to ensure Refresh = Logout
-             return null;
-        }
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return null;
-            const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-            if (error) {
-                 return { id: user.id, email: user.email!, full_name: user.user_metadata.full_name || 'User', role: 'user', plan: 'free' };
-            }
-            return data;
-        } catch { return null; }
-    },
-
-    saveUserLocal: (user: UserProfile) => {
-        // Only saving for debugging if needed, but not restoring on refresh
-        // localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(user));
-    },
-
-    saveDoc: async (doc: DocumentFile) => {
-        if (!supabase) {
-             const key = `${STORAGE_KEYS.DOCS_PREFIX}${doc.user_id}`;
-             const docsStr = localStorage.getItem(key);
-             const docs: DocumentFile[] = docsStr ? JSON.parse(docsStr) : [];
-             docs.push(doc);
-             localStorage.setItem(key, JSON.stringify(docs));
-             return;
-        }
-        try {
-            const { error } = await supabase.from('documents').insert(doc);
-            if (error) console.error("Doc Save Error:", error);
-        } catch(e) { console.error("Doc Save Exception:", e); }
-    },
-
-    getDocs: async (userId: string): Promise<DocumentFile[]> => {
-        if (!supabase) {
-            const key = `${STORAGE_KEYS.DOCS_PREFIX}${userId}`;
-            const docsStr = localStorage.getItem(key);
-            return docsStr ? JSON.parse(docsStr) : [];
-        }
-        const { data } = await supabase.from('documents').select('*').eq('user_id', userId);
-        return data || [];
-    },
-
-    saveChat: async (userId: string, messages: Message[]) => {
-        if (!supabase) {
-             localStorage.setItem(`${STORAGE_KEYS.CHAT_PREFIX}${userId}`, JSON.stringify(messages));
-             return;
-        }
-        try {
-            const { data } = await supabase.from('chats').select('id').eq('user_id', userId).maybeSingle();
-            if (data) {
-                await supabase.from('chats').update({ messages }).eq('id', data.id);
-            } else {
-                await supabase.from('chats').insert({ user_id: userId, messages });
-            }
-        } catch (err) {
-            console.error("Chat sync failed (Tables might be missing):", err);
-        }
-    },
-
-    getChat: async (userId: string): Promise<Message[]> => {
-        if (!supabase) {
-            const str = localStorage.getItem(`${STORAGE_KEYS.CHAT_PREFIX}${userId}`);
-            return str ? JSON.parse(str) : [];
-        }
-        const { data } = await supabase.from('chats').select('messages').eq('user_id', userId).single();
-        return data?.messages || [];
-    },
-
-    // --- ASYNC CALENDAR EVENTS (DB + Fallback) ---
-    getEvents: async (userId: string): Promise<CalendarEvent[]> => {
-        if (!supabase) {
-            const str = localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`);
-            return str ? JSON.parse(str) : [];
-        }
-        try {
-            const { data, error } = await supabase.from('events').select('*').eq('user_id', userId);
-            // If table doesn't exist (error 404/42P01), fall back to local
-            if (error) throw error; 
-            return data || [];
-        } catch (e) {
-            // Quiet fail to local storage to prevent app crash if SQL wasn't run
-            const str = localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`);
-            return str ? JSON.parse(str) : [];
-        }
-    },
-
-    saveEvent: async (userId: string, event: CalendarEvent) => {
-        if (!supabase) {
-            const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
-            current.push(event);
-            localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(current));
-            return;
-        }
-        try {
-            const { error } = await supabase.from('events').insert({
-                id: event.id,
-                user_id: userId,
-                title: event.title,
-                date: event.date,
-                type: event.type
-            });
-            if (error) throw error;
-        } catch (e) {
-            // Fallback
-            const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
-            current.push(event);
-            localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(current));
-        }
-    },
-    
-    deleteEvent: async (userId: string, eventId: string) => {
-        if(!supabase) {
-             const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
-             const next = current.filter((e: CalendarEvent) => e.id !== eventId);
-             localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(next));
-             return;
-        }
-        try {
-            const { error } = await supabase.from('events').delete().eq('id', eventId);
-            if(error) throw error;
-        } catch(e) {
-             const current = JSON.parse(localStorage.getItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`) || "[]");
-             const next = current.filter((e: CalendarEvent) => e.id !== eventId);
-             localStorage.setItem(`${STORAGE_KEYS.EVENTS_PREFIX}${userId}`, JSON.stringify(next));
-        }
-    },
-
-    // App Brain
-    getMasterPrompt: async (): Promise<string> => {
-        if (!supabase) {
-            return localStorage.getItem('edtech_master_prompt') || DEFAULT_SYSTEM_INSTRUCTION;
-        }
-        const { data } = await supabase.from('system_settings').select('value').eq('key', 'master_prompt').maybeSingle();
-        return data?.value || DEFAULT_SYSTEM_INSTRUCTION;
-    },
-
-    setMasterPrompt: async (prompt: string) => {
-        if (!supabase) {
-            localStorage.setItem('edtech_master_prompt', prompt);
-            return;
-        }
-        try {
-            const { data } = await supabase.from('system_settings').select('key').eq('key', 'master_prompt').maybeSingle();
-            if(data) {
-                await supabase.from('system_settings').update({ value: prompt }).eq('key', 'master_prompt');
-            } else {
-                await supabase.from('system_settings').insert({ key: 'master_prompt', value: prompt });
-            }
-        } catch(e) { console.error("Settings Save Error:", e); alert("Failed to save settings to DB."); }
-    },
-
-    getAllUsers: async (): Promise<UserProfile[]> => {
-        if (!supabase) return [];
-        try {
-            const { data } = await supabase.from('profiles').select('*').order('joined_date', { ascending: false });
-            return data || [];
-        } catch { return []; }
-    },
-
-    // AI Generation (Streaming + Deep Think)
-    generateAIStream: async function* (apiKey: string, prompt: string, sys: string, hist: any[], useThinking: boolean) {
-        const ai = new GoogleGenAI({ apiKey });
-        const contents: Content[] = hist.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.text }]
-        }));
-        contents.push({ role: 'user', parts: [{ text: prompt }] });
-        
-        const config: any = { systemInstruction: sys };
-        
-        // Deep Thinking Config (Gemini 2.5 Flash only)
-        if (useThinking) {
-            // Budget is token count for internal reasoning
-            config.thinkingConfig = { thinkingBudget: 4096 }; 
-        }
-
-        const result = await ai.models.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: contents,
-            config: config
-        });
-
-        for await (const chunk of result) {
-            yield chunk.text; 
-        }
-    }
-};
+const IconClipboardCheck = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>;
+const IconSparkles = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clipRule="evenodd" /></svg>;
+const IconCheck = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>;
+const IconXCircle = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>;
+const IconStar = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>;
 
 // --- Helpers ---
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+};
+
 const extractTextFromPDF = async (file: File): Promise<string> => {
   const arrayBuffer = await file.arrayBuffer();
   if (!window.pdfjsLib) throw new Error("PDF Library not loaded.");
@@ -355,856 +199,578 @@ const extractTextFromDOCX = async (file: File): Promise<string> => {
   return result.value;
 };
 
-const getApiKey = (): string | null => {
-    const key = getEnv('API_KEY') || getEnv('VITE_API_KEY');
-    if (key) return key;
-    return sessionStorage.getItem(STORAGE_KEYS.API_KEY);
+// Safe API Key retrieval
+const getApiKey = (): string | undefined => {
+    try {
+        if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+            return process.env.API_KEY;
+        }
+        // @ts-ignore
+        if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_KEY) {
+            // @ts-ignore
+            return import.meta.env.VITE_API_KEY;
+        }
+        return undefined;
+    } catch (e) {
+        return undefined;
+    }
 };
 
-const handleExportPDF = (content: string, filename: string) => {
-    if (!window.jspdf) return alert("PDF generator not loaded.");
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    doc.setFontSize(18); doc.setTextColor(79, 70, 229); doc.text("Edtech AI", 20, 20);
-    doc.setFontSize(10); doc.setTextColor(100); doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 28);
-    doc.setFontSize(12); doc.setTextColor(0);
-    const splitText = doc.splitTextToSize(content, 170);
-    let y = 40;
-    for(let i = 0; i < splitText.length; i++) {
-        if (y > 280) { doc.addPage(); y = 20; }
-        doc.text(splitText[i], 20, y); y += 7;
-    }
-    doc.save(`${filename}.pdf`);
+// --- Auth Helpers ---
+const getStoredUsers = (): User[] => {
+  try {
+    const usersStr = localStorage.getItem(STORAGE_KEYS.USERS);
+    return usersStr ? JSON.parse(usersStr) : [];
+  } catch (e) { return []; }
 };
+
+const saveUser = (user: User) => {
+  const users = getStoredUsers();
+  const index = users.findIndex(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+  if (index === -1) { users.push(user); } else { users[index] = user; }
+  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+};
+
+const getSession = (): User | null => {
+  try {
+    const sessionStr = localStorage.getItem(STORAGE_KEYS.SESSION);
+    return sessionStr ? JSON.parse(sessionStr) : null;
+  } catch (e) { return null; }
+};
+
+const setSession = (user: User) => {
+  localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(user));
+};
+
+const clearSession = () => {
+  localStorage.removeItem(STORAGE_KEYS.SESSION);
+};
+
+// --- Doc Storage Helpers ---
+const getUserDocsKey = (userId: string) => `${STORAGE_KEYS.DOCS_PREFIX}${userId}`;
+const getStoredDocs = (userId: string): DocumentFile[] => {
+  try {
+    const docsStr = localStorage.getItem(getUserDocsKey(userId));
+    return docsStr ? JSON.parse(docsStr) : [];
+  } catch (e) { return []; }
+};
+const saveStoredDocs = (userId: string, docs: DocumentFile[]) => {
+  localStorage.setItem(getUserDocsKey(userId), JSON.stringify(docs));
+};
+
+// --- Stats Helpers ---
+const getSystemStats = () => {
+  const statsStr = localStorage.getItem(STORAGE_KEYS.STATS);
+  return statsStr ? JSON.parse(statsStr) : { docs: 42, queries: 128 };
+};
+const incrementStat = (key: 'docs' | 'queries') => {
+  const stats = getSystemStats();
+  stats[key]++;
+  localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(stats));
+};
+
+// --- Format Options ---
+const FORMAT_OPTIONS: { id: OutputFormat; label: string; instruction: string }[] = [
+  { id: 'auto', label: 'Auto Format', instruction: "Answer naturally based on the query." },
+  { id: 'report', label: 'Pro Report', instruction: "Format the response as a professional report. Use H1 for the main title, H2 for sections, bullet points for lists, and bold for key insights. Ensure the tone is formal and structured." },
+  { id: 'table', label: 'Data Table', instruction: "Present the answer primarily as a Markdown table. If there is data to compare or list, use columns and rows. Ensure headers are clear." },
+  { id: 'concise', label: 'Concise Summary', instruction: "Provide a very brief, high-level summary. Use bullet points. Keep it under 200 words if possible. Focus on the 'Bottom Line Up Front' (BLUF)." },
+  { id: 'step', label: 'Step-by-Step', instruction: "Break the answer down into a numbered step-by-step guide. Use bold numbering (e.g., Step 1:) and clear instructions." }
+];
 
 // --- Components ---
-
 const MarkdownContent = ({ content }: { content: string }) => {
   const [html, setHtml] = useState('');
   useEffect(() => {
     if (window.marked) {
-        // SECURITY: Basic sanitization config
-        window.marked.setOptions({
-            breaks: true, // Render newlines as breaks
-            gfm: true
-        });
         setHtml(window.marked.parse(content));
+    } else {
+        setHtml(content);
     }
-    else setHtml(content);
   }, [content]);
-  return <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed break-words" dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className="markdown-body text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: html }} />;
 };
 
-const TermsModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
+const PricingModal = ({ isOpen, onClose, onUpgrade, currentPlan }: { isOpen: boolean, onClose: () => void, onUpgrade: (plan: PlanType) => void, currentPlan: PlanType }) => {
     if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-70 backdrop-blur-sm p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 max-h-[80vh] overflow-y-auto">
-                <div className="p-6">
-                    <h2 className="text-xl font-bold mb-4 dark:text-white flex items-center gap-2"><IconInfo /> Terms & AI Transparency</h2>
-                    <div className="space-y-4 text-sm text-gray-600 dark:text-gray-300">
-                        <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
-                            <strong>AI Disclaimer:</strong> This app uses Google Gemini. Output may be inaccurate. Verify all educational content before use.
-                        </div>
-                        <p><strong>Data Privacy:</strong> {isSupabaseConfigured ? "Your data is securely stored in Supabase with RLS protection." : "You are in Local/Demo Mode. Data is stored only in your browser."}</p>
-                        <p><strong>Freemium Limits:</strong> Free tier is limited. Upgrade to 'Pro' to unlock more.</p>
-                    </div>
-                    <button onClick={onClose} className="mt-6 w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium">I Understand</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const ApiKeyModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
-    const [key, setKey] = useState('');
-    if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border border-gray-200 dark:border-gray-700">
-                <div className="p-6">
-                    <h2 className="text-lg font-bold mb-2 dark:text-white flex items-center gap-2"><IconKey /> Setup API Key</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                        Please enter your Google Gemini API key. Stored locally in session.
-                    </p>
-                    <input 
-                        type="password" 
-                        value={key}
-                        onChange={(e) => setKey(e.target.value)}
-                        placeholder="sk-..."
-                        className="w-full px-4 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none mb-4 dark:text-white"
-                    />
-                    <div className="flex gap-2">
-                         <a href="https://aistudio.google.com/app/apikey" target="_blank" className="flex-1 py-2 text-center text-sm text-primary-600 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg border border-transparent">Get Key</a>
-                         <button onClick={() => { if(key) { sessionStorage.setItem(STORAGE_KEYS.API_KEY, key); onClose(); } }} className="flex-1 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-bold">Save & Start</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// Admin Modal: Now with Brain Editing + User List
-const AdminSettingsModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () => void, user: UserProfile }) => {
-    const [prompt, setPrompt] = useState('');
-    const [users, setUsers] = useState<UserProfile[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<'brain'|'users'|'health'>('brain');
-
-    useEffect(() => {
-        if (isOpen) {
-            api.getMasterPrompt().then(setPrompt);
-            api.getAllUsers().then(setUsers);
+    
+    const plans = [
+        {
+            id: 'free' as PlanType,
+            name: 'Starter',
+            price: 'Free',
+            features: ['1 Document Slot', '5MB File Size Limit', 'Basic AI Models', 'Community Support'],
+            color: 'bg-gray-100 dark:bg-gray-700',
+            btnColor: 'bg-gray-800 hover:bg-gray-900',
+            recommended: false
+        },
+        {
+            id: 'pro' as PlanType,
+            name: 'Educator Pro',
+            price: '$9.99/mo',
+            features: ['10 Document Slots', '20MB File Size Limit', 'Advanced Reasoning Models', 'Priority Generation', 'Export to PDF/Word'],
+            color: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200',
+            btnColor: 'bg-indigo-600 hover:bg-indigo-700',
+            recommended: true
+        },
+        {
+            id: 'campus' as PlanType,
+            name: 'Campus Plan',
+            price: '$29.99/mo',
+            features: ['Unlimited Documents', '50MB File Size Limit', 'Team Sharing (Beta)', 'Dedicated Support', 'Custom Rubrics'],
+            color: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200',
+            btnColor: 'bg-purple-600 hover:bg-purple-700',
+            recommended: false
         }
-    }, [isOpen]);
-
-    const handleSave = async () => {
-        setLoading(true);
-        try {
-            await api.setMasterPrompt(prompt);
-            alert("App Brain Updated Successfully!");
-        } catch(e) {
-            alert("Failed to update.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleReset = () => {
-        if(confirm("Reset Brain to factory defaults?")) setPrompt(DEFAULT_SYSTEM_INSTRUCTION);
-    };
-
-    if (!isOpen) return null;
+    ];
 
     return (
-         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md p-4 animate-fadeIn">
-            <div className="bg-gray-900 rounded-xl shadow-2xl w-full max-w-5xl border border-gray-700 h-[85vh] flex flex-col overflow-hidden">
-                <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
-                    <h2 className="text-white font-bold flex items-center gap-2 text-lg">
-                        <IconSettings /> 
-                        Admin Control Center
-                        <span className="text-xs bg-red-900 text-red-200 px-2 py-0.5 rounded ml-2">SUPERUSER</span>
-                    </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white p-2 rounded hover:bg-gray-700"><IconClose /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Upgrade Your Workspace</h2>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">Unlock more power, storage, and advanced AI features.</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg text-gray-500"><IconClose /></button>
                 </div>
-                
-                {/* Tabs */}
-                <div className="flex border-b border-gray-700 bg-gray-900">
-                    <button onClick={() => setActiveTab('brain')} className={`px-6 py-3 text-sm font-medium transition-colors ${activeTab === 'brain' ? 'text-white border-b-2 border-green-500 bg-gray-800' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
-                        <div className="flex items-center gap-2"><IconBrain /> App Brain</div>
-                    </button>
-                    <button onClick={() => setActiveTab('users')} className={`px-6 py-3 text-sm font-medium transition-colors ${activeTab === 'users' ? 'text-white border-b-2 border-green-500 bg-gray-800' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
-                        Users ({users.length})
-                    </button>
-                    <button onClick={() => setActiveTab('health')} className={`px-6 py-3 text-sm font-medium transition-colors ${activeTab === 'health' ? 'text-white border-b-2 border-green-500 bg-gray-800' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>
-                        <div className="flex items-center gap-2"><IconActivity /> System Health</div>
-                    </button>
-                </div>
-
-                <div className="flex-1 p-6 overflow-hidden bg-gray-900">
-                     {activeTab === 'brain' ? (
-                         <div className="h-full flex flex-col">
-                             <div className="mb-4 flex justify-between items-start">
-                                 <div>
-                                     <h3 className="text-green-400 font-bold mb-1">Master Prompt Configuration</h3>
-                                     <p className="text-gray-400 text-xs">This logic governs the entire AI personality and pedagogical approach for all users.</p>
-                                 </div>
-                                 <button onClick={handleReset} className="text-xs text-gray-500 hover:text-white flex items-center gap-1 px-3 py-1 border border-gray-700 rounded hover:bg-gray-800">
-                                     <IconRefresh /> Reset Default
-                                 </button>
-                             </div>
-                             <textarea 
-                                value={prompt}
-                                onChange={e => setPrompt(e.target.value)}
-                                className="flex-1 w-full bg-black text-green-400 font-mono text-sm p-4 rounded-lg border border-gray-700 outline-none resize-none mb-4 focus:border-green-600 transition-colors shadow-inner"
-                                spellCheck={false}
-                             />
-                             <div className="flex justify-end gap-3">
-                                <button onClick={onClose} className="px-6 py-2 text-gray-400 hover:text-white">Cancel</button>
-                                <button onClick={handleSave} disabled={loading} className="px-6 py-2 bg-green-600 text-white font-bold rounded hover:bg-green-700 shadow-lg shadow-green-900/50 transition-all active:scale-95">
-                                    {loading ? 'Deploying...' : 'Deploy to Production'}
+                <div className="p-6 md:p-8 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {plans.map((plan) => (
+                            <div key={plan.id} className={`relative rounded-xl p-6 border ${plan.id === 'pro' || plan.id === 'campus' ? 'border-transparent shadow-lg' : 'border-gray-200 dark:border-gray-700'} ${plan.color} flex flex-col`}>
+                                {plan.recommended && <div className="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded-bl-lg rounded-tr-lg">RECOMMENDED</div>}
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">{plan.name}</h3>
+                                <div className="text-3xl font-extrabold text-gray-900 dark:text-white mt-2 mb-4">{plan.price}</div>
+                                <ul className="space-y-3 mb-8 flex-1">
+                                    {plan.features.map((feat, i) => (
+                                        <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300"><IconCheck /><span>{feat}</span></li>
+                                    ))}
+                                </ul>
+                                <button onClick={() => onUpgrade(plan.id)} disabled={currentPlan === plan.id} className={`w-full py-2.5 rounded-lg text-white font-medium transition-all ${plan.btnColor} ${currentPlan === plan.id ? 'opacity-50 cursor-default' : 'shadow-md hover:shadow-lg'}`}>
+                                    {currentPlan === plan.id ? 'Current Plan' : 'Select Plan'}
                                 </button>
-                             </div>
-                         </div>
-                     ) : activeTab === 'users' ? (
-                         <div className="h-full overflow-y-auto">
-                            {!users.length ? (
-                                <p className="text-gray-500 p-4 border border-dashed border-gray-700 rounded-lg text-center">No users found or RLS restricted.</p>
-                            ) : (
-                                 <div className="border border-gray-700 rounded-lg overflow-hidden">
-                                     <table className="w-full text-sm text-left text-gray-400">
-                                         <thead className="text-xs text-gray-200 uppercase bg-gray-800">
-                                             <tr>
-                                                 <th className="px-4 py-3">User</th>
-                                                 <th className="px-4 py-3">Email</th>
-                                                 <th className="px-4 py-3">Plan</th>
-                                                 <th className="px-4 py-3">Role</th>
-                                             </tr>
-                                         </thead>
-                                         <tbody>
-                                             {users.map(u => (
-                                                 <tr key={u.id} className="border-b border-gray-800 hover:bg-gray-800/50">
-                                                     <td className="px-4 py-3 font-medium text-white">{u.full_name}</td>
-                                                     <td className="px-4 py-3">{u.email}</td>
-                                                     <td className="px-4 py-3"><span className={`px-2 py-1 rounded text-xs ${u.plan === 'free' ? 'bg-gray-700' : 'bg-purple-900 text-purple-200'}`}>{u.plan}</span></td>
-                                                     <td className="px-4 py-3">
-                                                         <span className={`px-2 py-1 rounded text-xs ${u.role === 'admin' ? 'bg-red-900 text-red-200' : 'bg-gray-700'}`}>{u.role}</span>
-                                                     </td>
-                                                 </tr>
-                                             ))}
-                                         </tbody>
-                                     </table>
-                                 </div>
-                            )}
-                         </div>
-                     ) : (
-                         <div className="h-full overflow-y-auto p-4">
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                 <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
-                                     <h4 className="text-gray-400 text-xs uppercase font-bold mb-2">Storage Status</h4>
-                                     <div className="text-2xl font-bold text-white">{isSupabaseConfigured ? 'Remote (Supabase)' : 'Local (Browser)'}</div>
-                                     <p className="text-xs text-gray-500 mt-1">Data persistence layer.</p>
-                                 </div>
-                                 <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
-                                     <h4 className="text-gray-400 text-xs uppercase font-bold mb-2">API Configuration</h4>
-                                     <div className="text-2xl font-bold text-white">{hasConfiguredApiKey ? 'Managed (Server)' : 'User Provided'}</div>
-                                     <p className="text-xs text-gray-500 mt-1">Key injection method.</p>
-                                 </div>
-                                 <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
-                                     <h4 className="text-gray-400 text-xs uppercase font-bold mb-2">Brain Revision</h4>
-                                     <div className="text-2xl font-bold text-white">v{prompt.length}</div>
-                                     <p className="text-xs text-gray-500 mt-1">Total characters in Master Prompt.</p>
-                                 </div>
-                             </div>
-                         </div>
-                     )}
-                </div>
-            </div>
-         </div>
-    );
-}
-
-const PricingModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () => void, user: UserProfile }) => {
-    if (!isOpen) return null;
-    const handleUpgrade = async (plan: PlanType) => {
-        if (!isSupabaseConfigured) {
-             const updated = { ...user, plan };
-             // No persistence, just update local state
-             alert(`Upgraded to ${plan} (Demo Mode - Valid for this session only).`);
-             window.location.reload(); // Actually for upgrade we might want to reload to reflect... wait, reload will kill session now.
-             // Better to just alert.
-             return;
-        }
-        const { error } = await supabase!.from('profiles').update({ plan }).eq('id', user.id);
-        if(!error) {
-            alert(`Upgraded to ${plan}! Refreshing...`);
-            window.location.reload();
-        }
-    }
-    
-    return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-200 dark:border-gray-700 p-8 relative">
-                <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><IconClose/></button>
-                <div className="text-center mb-10">
-                    <h2 className="text-3xl font-bold dark:text-white mb-2">Upgrade Your Teaching Toolkit</h2>
-                    <p className="text-gray-500">Choose the plan that fits your classroom needs.</p>
-                </div>
-                <div className="grid md:grid-cols-3 gap-6">
-                    {Object.entries(PLAN_LIMITS).map(([key, limit]) => (
-                        <div key={key} className={`border rounded-xl p-6 flex flex-col ${user.plan === key ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/10 ring-2 ring-primary-500' : 'border-gray-200 dark:border-gray-700'}`}>
-                            <h3 className="text-xl font-bold dark:text-white capitalize">{limit.label}</h3>
-                            <div className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-300 flex-1">
-                                <p>• {limit.maxDocs === 999 ? 'Unlimited' : limit.maxDocs} Documents</p>
-                                <p>• {limit.maxSizeMB}MB Upload Limit</p>
-                                <p>• {key === 'free' ? 'Basic' : 'Advanced'} AI Reasoning</p>
                             </div>
-                            <button 
-                                onClick={() => handleUpgrade(key as PlanType)}
-                                disabled={user.plan === key}
-                                className={`mt-6 w-full py-2 rounded-lg font-bold ${user.plan === key ? 'bg-gray-200 text-gray-500 cursor-default' : 'bg-primary-600 text-white hover:bg-primary-700'}`}
-                            >
-                                {user.plan === key ? 'Current Plan' : 'Select'}
-                            </button>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
     );
 };
 
-// --- APP COMPONENT ---
-const App = () => {
-    const [user, setUser] = useState<UserProfile | null>(null);
-    const [isInitializing, setInitializing] = useState(true);
-    const [activeTab, setActiveTab] = useState<'chat' | 'docs' | 'calendar'>('chat');
-    const [sidebarOpen, setSidebarOpen] = useState(false);
-    
-    // Data States
-    const [docs, setDocs] = useState<DocumentFile[]>([]);
-    const [chat, setChat] = useState<Message[]>([]);
-    const [events, setEvents] = useState<CalendarEvent[]>([]);
-    
-    // UI States
-    const [input, setInput] = useState('');
-    const [isStreaming, setStreaming] = useState(false);
-    const [showApiKey, setShowApiKey] = useState(false);
-    const [showAdmin, setShowAdmin] = useState(false);
-    const [showPricing, setShowPricing] = useState(false);
-    const [showTerms, setShowTerms] = useState(false);
-    const [outputFormat, setOutputFormat] = useState<OutputFormat>('auto');
-    const [useThinking, setUseThinking] = useState(false);
-    const [fileToUpload, setFileToUpload] = useState<File|null>(null);
-    const [isProcessingFile, setIsProcessingFile] = useState(false);
-    const [newEvent, setNewEvent] = useState({ title: '', date: '', type: 'class' });
-
-    // Login States
+const AuthScreen = ({ onLogin }: { onLogin: (user: User) => void }) => {
+    const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [authMode, setAuthMode] = useState<'login'|'signup'>('login');
-    const [authLoading, setAuthLoading] = useState(false);
+    const [name, setName] = useState('');
+    const [role, setRole] = useState<'user' | 'admin'>('user');
+    const [error, setError] = useState('');
 
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    // Initialization Logic
     useEffect(() => {
-        const init = async () => {
-            if (supabase) {
-                const { error } = await supabase.auth.getSession();
-                if (error) {
-                   console.warn("Session invalid, clearing...", error);
-                   await supabase.auth.signOut();
-                }
-            }
-
-            const u = await api.getProfile();
-            setUser(u);
-            
-            // Note: Data loading is now handled in the effect below that watches 'user'
-            
-            // Delay slightly to prevent flicker if fast
-            setTimeout(() => setInitializing(false), 500);
-        };
-        init();
+        const users = getStoredUsers();
+        if (!users.some(u => u.email === 'admin@edtech.ai')) {
+            saveUser({ id: 'default-admin-id', email: 'admin@edtech.ai', password: 'admin', name: 'System Admin', role: 'admin', plan: 'campus', joinedDate: Date.now() });
+        }
     }, []);
 
-    // Load Data whenever User changes (Logging in)
-    useEffect(() => {
-        const loadUserData = async () => {
-            if (user) {
-                 const [d, c, e] = await Promise.all([
-                     api.getDocs(user.id),
-                     api.getChat(user.id),
-                     api.getEvents(user.id)
-                 ]);
-                 setDocs(d);
-                 setChat(c);
-                 setEvents(e);
-            } else {
-                setDocs([]);
-                setChat([]);
-                setEvents([]);
-            }
-        };
-        loadUserData();
-    }, [user]);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [chat]);
-
-    const handleAuth = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!isSupabaseConfigured) {
-             // Generate ID: Admin gets fixed ID, others get random to prevent collisions (but lose data on refresh)
-             const isAdmin = email === 'admin@edtech.ai';
-             const mockId = isAdmin ? 'user_admin_v1' : 'user_' + Date.now();
-             
-             // ADMIN BACKDOOR FOR DEMO
-             const role = isAdmin ? 'admin' : 'user';
-             const fullName = role === 'admin' ? 'System Administrator' : 'Demo Educator';
-             const plan = role === 'admin' ? 'campus' : 'free';
-             
-             const u: UserProfile = { id: mockId, email, full_name: fullName, role, plan };
-             
-             // Directly set user state (No reload, No persistence to local storage)
-             setAuthLoading(true);
-             setTimeout(() => {
-                 setUser(u);
-                 setAuthLoading(false);
-             }, 500); // Fake delay for UX
-             return;
+    const handleResetData = () => {
+        if (confirm("FACTORY RESET WARNING:\n\nThis will delete ALL local accounts, documents, and settings. Continue?")) {
+            localStorage.clear();
+            window.location.reload();
         }
-        setAuthLoading(true);
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        if (!email || !password) { setError('Please fill in all fields'); return; }
+        
+        const cleanEmail = email.trim().toLowerCase();
+        if (isLogin) {
+            const user = getStoredUsers().find(u => u.email.toLowerCase() === cleanEmail && u.password === password.trim());
+            if (user) { setSession(user); onLogin(user); } else { setError('Invalid credentials. (Try admin@edtech.ai / admin)'); }
+        } else {
+            if (getStoredUsers().find(u => u.email.toLowerCase() === cleanEmail)) { setError('User already exists'); return; }
+            if (!name) { setError('Name is required'); return; }
+            const newUser: User = { id: crypto.randomUUID(), email: cleanEmail, password: password.trim(), name: name.trim(), role, plan: 'free', joinedDate: Date.now() };
+            saveUser(newUser); setSession(newUser);
+            setTimeout(() => onLogin(newUser), 50);
+        }
+    };
+
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4 font-sans">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl flex overflow-hidden border border-gray-200 dark:border-gray-700 min-h-[600px]">
+                <div className="w-1/2 bg-gradient-to-br from-primary-600 to-indigo-800 p-12 hidden md:flex flex-col justify-between relative overflow-hidden">
+                    <div className="relative z-10">
+                        <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mb-6 shadow-lg"><span className="text-2xl font-bold text-primary-600">E</span></div>
+                        <h1 className="text-4xl font-bold text-white mb-4 leading-tight">Unlock the power of your educational content.</h1>
+                        <p className="text-primary-100 text-lg">Edtech AI transforms static files into interactive knowledge bases.</p>
+                    </div>
+                </div>
+                <div className="w-full md:w-1/2 p-8 md:p-12 flex flex-col justify-center bg-white dark:bg-gray-800 relative">
+                    <div className="max-w-md mx-auto w-full">
+                        <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{isLogin ? 'Welcome Back' : 'Create Account'}</h2>
+                        <form onSubmit={handleSubmit} className="space-y-5">
+                            {!isLogin && <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Name</label><input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white" /></div>}
+                            <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white" /></div>
+                            <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white" /></div>
+                            {!isLogin && <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label><select value={role} onChange={(e) => setRole(e.target.value as any)} className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 outline-none dark:text-white"><option value="user">User</option><option value="admin">Admin</option></select></div>}
+                            {error && <p className="text-red-500 text-sm">{error}</p>}
+                            <button type="submit" className="w-full bg-primary-600 hover:bg-primary-700 text-white font-semibold py-3 rounded-lg shadow-lg transition-all">{isLogin ? 'Sign In' : 'Sign Up'}</button>
+                        </form>
+                        <div className="mt-8 text-center text-sm text-gray-500"><button onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-primary-600 hover:underline">{isLogin ? 'Create an account' : 'Back to login'}</button></div>
+                        <div className="absolute bottom-4 right-4"><button onClick={handleResetData} className="text-[10px] text-gray-300 hover:text-red-400 flex items-center gap-1"><IconTrash /> Reset App Data</button></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const RubricGeneratorModal = ({ isOpen, onClose, onGenerate, activeDocName }: { isOpen: boolean, onClose: () => void, onGenerate: (config: RubricConfig) => void, activeDocName: string | null }) => {
+    const [config, setConfig] = useState<RubricConfig>({ assignment: '', gradeLevel: '9th Grade', scale: '4', bloomsLevel: 'Applying', objectives: '', useActiveDoc: !!activeDocName });
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-between items-center">
+                    <div className="flex items-center gap-3"><div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400"><IconTable /></div><h2 className="text-lg font-bold text-gray-900 dark:text-white">Rubric Generator</h2></div>
+                    <button onClick={onClose}><IconClose /></button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Assignment</label><textarea value={config.assignment} onChange={e => setConfig({...config, assignment: e.target.value})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white" rows={2} /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Grade Level</label><select value={config.gradeLevel} onChange={e => setConfig({...config, gradeLevel: e.target.value})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white"><option>Elementary</option><option>Middle School</option><option>High School</option><option>Undergrad</option></select></div>
+                        <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Scale</label><select value={config.scale} onChange={e => setConfig({...config, scale: e.target.value as any})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white"><option value="3">3-Point</option><option value="4">4-Point</option><option value="5">5-Point</option></select></div>
+                    </div>
+                    <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Bloom's Level</label><select value={config.bloomsLevel} onChange={e => setConfig({...config, bloomsLevel: e.target.value})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white">{BLOOMS_LEVELS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}</select></div>
+                    {activeDocName && <div className="flex items-center gap-2 pt-2"><input type="checkbox" checked={config.useActiveDoc} onChange={e => setConfig({...config, useActiveDoc: e.target.checked})} /><label className="text-sm dark:text-gray-300">Use active document context</label></div>}
+                </div>
+                <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
+                    <button onClick={() => onGenerate(config)} disabled={!config.assignment} className="px-5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 font-medium">Generate</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const AssessmentGeneratorModal = ({ isOpen, onClose, onGenerate, activeDocName }: { isOpen: boolean, onClose: () => void, onGenerate: (config: AssessmentConfig) => void, activeDocName: string | null }) => {
+    const [config, setConfig] = useState<AssessmentConfig>({ type: 'mixed', topic: '', gradeLevel: '9th Grade', difficulty: 'medium', count: 10, includeKey: true, useActiveDoc: !!activeDocName });
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-between items-center">
+                    <div className="flex items-center gap-3"><div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400"><IconClipboardCheck /></div><h2 className="text-lg font-bold text-gray-900 dark:text-white">Assessment Generator</h2></div>
+                    <button onClick={onClose}><IconClose /></button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Topic</label><input type="text" value={config.topic} onChange={e => setConfig({...config, topic: e.target.value})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white" /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Type</label><select value={config.type} onChange={e => setConfig({...config, type: e.target.value as any})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white"><option value="mixed">Mixed</option><option value="mcq">MCQ</option><option value="srq">Short Resp</option><option value="erq">Essay</option></select></div>
+                        <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Count</label><input type="number" value={config.count} onChange={e => setConfig({...config, count: parseInt(e.target.value)})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white" /></div>
+                    </div>
+                    {activeDocName && <div className="flex items-center gap-2 pt-2"><input type="checkbox" checked={config.useActiveDoc} onChange={e => setConfig({...config, useActiveDoc: e.target.checked})} /><label className="text-sm dark:text-gray-300">Use active document context</label></div>}
+                </div>
+                <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
+                    <button onClick={() => onGenerate(config)} disabled={!config.topic && !config.useActiveDoc} className="px-5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 font-medium">Generate</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const LessonPlanModal = ({ isOpen, onClose, onGenerate, activeDocName }: { isOpen: boolean, onClose: () => void, onGenerate: (config: LessonConfig) => void, activeDocName: string | null }) => {
+    const [config, setConfig] = useState<LessonConfig>({ templateId: '5e', topic: '', gradeLevel: '9th Grade', duration: '60 min', objectives: '', standards: '', useActiveDoc: !!activeDocName });
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 flex flex-col max-h-[90vh]">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-between items-center">
+                    <div className="flex items-center gap-3"><div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400"><IconClipboard /></div><h2 className="text-lg font-bold text-gray-900 dark:text-white">Lesson Planner</h2></div>
+                    <button onClick={onClose}><IconClose /></button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Topic</label><input type="text" value={config.topic} onChange={e => setConfig({...config, topic: e.target.value})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white" /></div>
+                    <div><label className="block text-sm font-medium mb-1 dark:text-gray-300">Framework</label><select value={config.templateId} onChange={e => setConfig({...config, templateId: e.target.value})} className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 outline-none dark:text-white">{LESSON_TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
+                    {activeDocName && <div className="flex items-center gap-2 pt-2"><input type="checkbox" checked={config.useActiveDoc} onChange={e => setConfig({...config, useActiveDoc: e.target.checked})} /><label className="text-sm dark:text-gray-300">Use active document context</label></div>}
+                </div>
+                <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
+                    <button onClick={() => onGenerate(config)} disabled={!config.topic} className="px-5 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 font-medium">Generate</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const AdminDashboard = ({ isOpen, onClose, currentUser }: { isOpen: boolean, onClose: () => void, currentUser: User }) => {
+    const [users, setUsers] = useState<User[]>([]);
+    const [stats, setStats] = useState({ docs: 0, queries: 0 });
+    useEffect(() => { if (isOpen) { setUsers(getStoredUsers()); setStats(getSystemStats()); } }, [isOpen]);
+    const handleDeleteUser = (id: string) => { if (confirm("Delete user?")) { const u = users.filter(x => x.id !== id); localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(u)); setUsers(u); } };
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-gray-900 w-full max-w-5xl h-[80vh] rounded-2xl shadow-2xl flex flex-col border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 flex justify-between items-center">
+                    <div className="flex items-center gap-3"><IconShield /><h2 className="text-xl font-bold dark:text-white">Admin Dashboard</h2></div>
+                    <button onClick={onClose}><IconClose /></button>
+                </div>
+                <div className="p-6 overflow-y-auto">
+                    <div className="grid grid-cols-2 gap-4 mb-8">
+                        <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-xl border dark:border-gray-700"><h3>Users</h3><p className="text-2xl font-bold">{users.length}</p></div>
+                        <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-xl border dark:border-gray-700"><h3>Docs</h3><p className="text-2xl font-bold">{stats.docs}</p></div>
+                    </div>
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 dark:bg-gray-800 uppercase text-gray-500"><tr><th className="px-6 py-3">Name</th><th className="px-6 py-3">Email</th><th className="px-6 py-3">Role</th><th className="px-6 py-3">Action</th></tr></thead>
+                        <tbody>
+                            {users.map(u => (
+                                <tr key={u.id} className="border-b dark:border-gray-700">
+                                    <td className="px-6 py-4 dark:text-white">{u.name}</td>
+                                    <td className="px-6 py-4 dark:text-gray-300">{u.email}</td>
+                                    <td className="px-6 py-4">{u.role}</td>
+                                    <td className="px-6 py-4"><button onClick={() => handleDeleteUser(u.id)} disabled={u.id === currentUser.id} className="text-red-500 hover:underline">Delete</button></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const App = () => {
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [showAdminPanel, setShowAdminPanel] = useState(false);
+    const [showPricingModal, setShowPricingModal] = useState(false);
+    const [documents, setDocuments] = useState<DocumentFile[]>([]);
+    const [activeDocId, setActiveDocId] = useState<string | null>(null);
+    const [masterPrompt, setMasterPrompt] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.PROMPT) || DEFAULT_MASTER_PROMPT);
+    const [isCoreUnlocked, setIsCoreUnlocked] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [showRubricModal, setShowRubricModal] = useState(false);
+    const [showLessonModal, setShowLessonModal] = useState(false);
+    const [showAssessmentModal, setShowAssessmentModal] = useState(false);
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [input, setInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [isDarkMode, setIsDarkMode] = useState(true);
+    const [isProcessingFile, setIsProcessingFile] = useState(false);
+    const [fileError, setFileError] = useState<string | null>(null);
+    const [showWelcome, setShowWelcome] = useState(true);
+    const [selectedFormat, setSelectedFormat] = useState<OutputFormat>('auto');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => { const s = getSession(); if (s) setCurrentUser(s); }, []);
+    useEffect(() => { if (currentUser) { setSession(currentUser); const d = getStoredDocs(currentUser.id); setDocuments(d); if (d.length > 0) setActiveDocId(d[0].id); } }, [currentUser]);
+    useEffect(() => { document.documentElement.classList.toggle('dark', isDarkMode); }, [isDarkMode]);
+    useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
+
+    const handleLogin = (u: User) => setCurrentUser(u);
+    const handleLogout = () => { clearSession(); setCurrentUser(null); setDocuments([]); setActiveDocId(null); setMessages([]); };
+    const handleUpgrade = (plan: PlanType) => { if (currentUser) { const u = { ...currentUser, plan }; saveUser(u); setCurrentUser(u); setShowPricingModal(false); } };
+    
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !currentUser) return;
+        setIsProcessingFile(true); setFileError(null);
         try {
-            if (authMode === 'signup') {
-                const { error } = await supabase!.auth.signUp({ email, password, options: { data: { full_name: 'New Educator' } } });
-                if (error) throw error;
-                alert("Check email for confirmation!");
-            } else {
-                const { error } = await supabase!.auth.signInWithPassword({ email, password });
-                if (error) throw error;
-                window.location.reload();
-            }
-        } catch(e: any) { alert(e.message); }
-        finally { setAuthLoading(false); }
+            const plan = PLAN_LIMITS[currentUser.plan];
+            if (documents.length >= plan.maxDocs) throw new Error("Plan limit reached.");
+            if (file.size > plan.maxSizeMB * 1024 * 1024) throw new Error("File too large.");
+            
+            let content = "";
+            let type: DocumentFile['type'] = 'txt';
+            if (file.name.endsWith('.pdf')) { type = 'pdf'; content = await extractTextFromPDF(file); }
+            else if (file.name.endsWith('.docx')) { type = 'docx'; content = await extractTextFromDOCX(file); }
+            else { content = await file.text(); }
+            
+            const newDoc: DocumentFile = { id: crypto.randomUUID(), name: file.name, type, content, size: file.size, uploadDate: Date.now() };
+            const updated = [...documents, newDoc];
+            setDocuments(updated); saveStoredDocs(currentUser.id, updated); setActiveDocId(newDoc.id); setShowWelcome(false); incrementStat('docs');
+        } catch (err: any) { setFileError(err.message); } finally { setIsProcessingFile(false); e.target.value = ''; }
     };
 
     const handleSend = async () => {
-        if (!input.trim() && !fileToUpload) return;
-        if (!user) return;
-        const key = getApiKey();
-        if (!key) { setShowApiKey(true); return; }
-
-        const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text: input, timestamp: Date.now() };
+        if (!input.trim() || isLoading) return;
+        const apiKey = getApiKey();
+        if (!apiKey) { setMessages(p => [...p, { id: crypto.randomUUID(), role: 'model', text: "API Key Missing", timestamp: Date.now(), isError: true }]); return; }
         
-        let contextContent = "";
-        if (fileToUpload) {
-             // Basic text extraction for context
-             setIsProcessingFile(true);
-             try {
-                if(fileToUpload.type.includes('pdf')) contextContent = await extractTextFromPDF(fileToUpload);
-                else if(fileToUpload.name.endsWith('docx')) contextContent = await extractTextFromDOCX(fileToUpload);
-                else contextContent = await fileToUpload.text();
-                newUserMsg.text += `\n\n[Attached File Content: ${fileToUpload.name}]\n${contextContent.substring(0, 10000)}...`; // Truncate for token limits
-             } catch(e) {
-                 alert("Failed to read file.");
-                 setIsProcessingFile(false);
-                 return;
-             }
-             setIsProcessingFile(false);
-        }
-        
-        const newChat = [...chat, newUserMsg];
-        setChat(newChat);
-        setInput('');
-        setFileToUpload(null);
-        setStreaming(true);
-
-        const formatInst = FORMAT_OPTIONS.find(f => f.id === outputFormat)?.instruction || "";
-        const masterPrompt = await api.getMasterPrompt();
-        const systemInstruction = `${masterPrompt}\nFormat Requirement: ${formatInst}`;
+        const activeDoc = documents.find(d => d.id === activeDocId);
+        const userMsg: Message = { id: crypto.randomUUID(), role: 'user', text: input, timestamp: Date.now() };
+        setMessages(p => [...p, userMsg]); setInput(''); setIsLoading(true); setShowWelcome(false); incrementStat('queries');
 
         try {
-            const stream = api.generateAIStream(key, newUserMsg.text, systemInstruction, chat, useThinking);
+            const ai = new GoogleGenAI({ apiKey });
+            let prompt = masterPrompt;
+            const fmt = FORMAT_OPTIONS.find(f => f.id === selectedFormat)?.instruction;
+            if (fmt) prompt += `\n\nOUTPUT INSTRUCTION: ${fmt}`;
             
-            let fullResponse = "";
-            const botMsgId = (Date.now() + 1).toString();
-            // Optimistic update
-            setChat(prev => [...prev, { id: botMsgId, role: 'model', text: '', timestamp: Date.now(), isThinking: useThinking }]);
-
-            for await (const chunk of stream) {
-                fullResponse += chunk;
-                setChat(prev => prev.map(m => m.id === botMsgId ? { ...m, text: fullResponse, isThinking: false } : m));
-            }
+            const content = activeDoc ? `DOCUMENT CONTENT (${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}\n\nUSER QUERY: ${userMsg.text}` : userMsg.text;
             
-            // Final save
-            const finalChat: Message[] = [...newChat, { id: botMsgId, role: 'model', text: fullResponse, timestamp: Date.now() }];
-            api.saveChat(user.id, finalChat);
-            setChat(finalChat);
-
-        } catch(e) {
-             setChat(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "Error generating response. Check API Key.", isError: true, timestamp: Date.now() } as Message]);
-        } finally {
-            setStreaming(false);
-        }
+            const result = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: content, config: { systemInstruction: prompt } });
+            setMessages(p => [...p, { id: crypto.randomUUID(), role: 'model', text: result.text, timestamp: Date.now(), format: selectedFormat }]);
+        } catch (e: any) {
+            setMessages(p => [...p, { id: crypto.randomUUID(), role: 'model', text: `Error: ${e.message}`, timestamp: Date.now(), isError: true }]);
+        } finally { setIsLoading(false); }
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || !e.target.files[0] || !user) return;
-        const file = e.target.files[0];
+    const handleGenCommon = async (prompt: string, type: 'report' | 'table') => {
+        setIsSidebarOpen(false);
+        const apiKey = getApiKey();
+        if (!apiKey) return;
+        const userMsg: Message = { id: crypto.randomUUID(), role: 'user', text: prompt, timestamp: Date.now() };
+        setMessages(p => [...p, userMsg]); setIsLoading(true); setShowWelcome(false); incrementStat('queries');
         
-        const limit = PLAN_LIMITS[user.plan];
-        if (file.size > limit.maxSizeMB * 1024 * 1024) { alert(`File too large for ${limit.label}.`); return; }
-        if (docs.length >= limit.maxDocs) { alert(`Doc limit reached for ${limit.label}.`); return; }
-
-        setIsProcessingFile(true);
-        let content = "";
         try {
-            if(file.type.includes('pdf')) content = await extractTextFromPDF(file);
-            else if(file.name.endsWith('docx')) content = await extractTextFromDOCX(file);
-            else content = await file.text();
-            
-            const newDoc: DocumentFile = {
-                id: Date.now().toString(),
-                user_id: user.id,
-                name: file.name,
-                type: file.type.includes('pdf') ? 'pdf' : file.name.endsWith('docx') ? 'docx' : 'txt',
-                content: content,
-                size: file.size,
-                created_at: Date.now()
-            };
-            
-            await api.saveDoc(newDoc);
-            setDocs(prev => [...prev, newDoc]);
-        } catch(e) { alert("Failed to parse document."); }
-        finally { setIsProcessingFile(false); }
+            const ai = new GoogleGenAI({ apiKey });
+            const activeDoc = documents.find(d => d.id === activeDocId);
+            const content = activeDoc ? `CONTEXT (Active Document - ${activeDoc.name}):\n${activeDoc.content.substring(0, 30000)}\n\n${prompt}` : prompt;
+            const res = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: content, config: { systemInstruction: masterPrompt } });
+            setMessages(p => [...p, { id: crypto.randomUUID(), role: 'model', text: res.text, timestamp: Date.now(), format: type }]);
+        } catch (e) { console.error(e); } finally { setIsLoading(false); }
     };
 
-    const handleAddEvent = async () => {
-        if(!user || !newEvent.title || !newEvent.date) return;
-        const ev: CalendarEvent = { 
-            id: Date.now().toString(), 
-            title: newEvent.title, 
-            date: newEvent.date, 
-            type: newEvent.type as any 
-        };
-        await api.saveEvent(user.id, ev);
-        setEvents(prev => [...prev, ev]);
-        setNewEvent({ title: '', date: '', type: 'class' });
-    }
-
-    if (isInitializing) {
-        return (
-            <div className="fixed inset-0 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 z-50">
-                <div className="loader"></div>
-                <p className="mt-4 text-gray-500 font-medium">Initializing Edtech AI...</p>
-            </div>
-        );
-    }
-
-    if (!user) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 p-4">
-                <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-200 dark:border-gray-700">
-                    <div className="text-center mb-8">
-                        <div className="w-16 h-16 bg-primary-600 rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-lg shadow-primary-600/30">
-                            <IconBot />
-                        </div>
-                        <h1 className="text-2xl font-bold dark:text-white">Welcome to Edtech AI</h1>
-                        <p className="text-gray-500 mt-2">Your pedagogical co-pilot.</p>
-                    </div>
-                    <form onSubmit={handleAuth} className="space-y-4">
-                        <input 
-                            type="email" required placeholder="Email"
-                            value={email} onChange={e=>setEmail(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white"
-                        />
-                        <input 
-                            type="password" required placeholder="Password"
-                            value={password} onChange={e=>setPassword(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white"
-                        />
-                        <button disabled={authLoading} className="w-full py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition-all flex justify-center items-center">
-                            {authLoading ? <div className="loader h-5 w-5 border-2 border-white border-t-transparent" /> : (authMode === 'login' ? 'Sign In' : 'Create Account')}
-                        </button>
-                    </form>
-                    <div className="mt-6 text-center">
-                        <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-sm text-primary-600 hover:underline">
-                            {authMode === 'login' ? "New here? Create account" : "Have an account? Sign In"}
-                        </button>
-                    </div>
-                    {!isSupabaseConfigured && (
-                        <div className="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-xs rounded-xl text-center border border-yellow-100 dark:border-yellow-800/50">
-                            <p className="font-bold mb-2">Demo Mode Active (Local Storage)</p>
-                            <button 
-                                onClick={() => { setEmail('admin@edtech.ai'); setPassword('admin'); }}
-                                className="w-full py-2 bg-yellow-100 dark:bg-yellow-800/40 hover:bg-yellow-200 dark:hover:bg-yellow-800/60 text-yellow-900 dark:text-yellow-100 rounded-lg transition-colors font-semibold flex items-center justify-center gap-2"
-                            >
-                                <IconKey /> Auto-fill Admin Login
-                            </button>
-                            <p className="mt-2 text-[10px] opacity-70">Use this to access the Admin Dashboard</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    }
+    if (!currentUser) return <AuthScreen onLogin={handleLogin} />;
 
     return (
-        <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
-            {/* Sidebar */}
-            <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                <div className="flex flex-col h-full">
-                    <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
-                         <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">EA</div>
-                         <span className="font-bold text-lg tracking-tight">Edtech AI</span>
-                         <button onClick={() => setSidebarOpen(false)} className="md:hidden ml-auto"><IconClose /></button>
-                    </div>
-                    
-                    <div className="p-4 space-y-1 overflow-y-auto flex-1">
-                        <button onClick={() => setActiveTab('chat')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'chat' ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium' : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
-                            <IconChat /> Chat Assistant
-                        </button>
-                        <button onClick={() => setActiveTab('docs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'docs' ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium' : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
-                            <IconCloud /> Documents
-                        </button>
-                        <button onClick={() => setActiveTab('calendar')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'calendar' ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium' : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
-                            <IconCalendar /> Planner
-                        </button>
-                        
-                        <div className="pt-4 mt-4 border-t border-gray-100 dark:border-gray-700">
-                            <button onClick={() => setShowPricing(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${user.plan === 'pro' ? 'bg-purple-100 text-purple-600' : 'bg-gray-200 text-gray-600'}`}>{user.plan}</span>
-                                <span className="text-sm">Upgrade Plan</span>
-                            </button>
-                            {!hasConfiguredApiKey && (
-                                <button onClick={() => setShowApiKey(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
-                                    <IconKey /> <span className="text-sm">API Key</span>
-                                </button>
-                            )}
-                            {user.role === 'admin' && (
-                                <button onClick={() => setShowAdmin(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
-                                    <IconSettings /> <span className="text-sm">Admin</span>
-                                </button>
-                            )}
-                        </div>
-                    </div>
+        <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden font-sans text-gray-900 dark:text-gray-100">
+            {showAdminPanel && <AdminDashboard isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} currentUser={currentUser} />}
+            {showPricingModal && <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} onUpgrade={handleUpgrade} currentPlan={currentUser.plan} />}
+            {showRubricModal && <RubricGeneratorModal isOpen={showRubricModal} onClose={() => setShowRubricModal(false)} onGenerate={(c) => { setShowRubricModal(false); handleGenCommon(`Generate a ${c.scale}-point rubric for "${c.assignment}" (${c.gradeLevel}) focusing on ${c.bloomsLevel}.`, 'table'); }} activeDocName={documents.find(d => d.id === activeDocId)?.name || null} />}
+            {showLessonModal && <LessonPlanModal isOpen={showLessonModal} onClose={() => setShowLessonModal(false)} onGenerate={(c) => { setShowLessonModal(false); handleGenCommon(`Generate a lesson plan for "${c.topic}" (${c.gradeLevel}) using ${c.templateId} model.`, 'report'); }} activeDocName={documents.find(d => d.id === activeDocId)?.name || null} />}
+            {showAssessmentModal && <AssessmentGeneratorModal isOpen={showAssessmentModal} onClose={() => setShowAssessmentModal(false)} onGenerate={(c) => { setShowAssessmentModal(false); handleGenCommon(`Generate a ${c.count}-question ${c.type} assessment for "${c.topic}" (${c.gradeLevel}).`, 'report'); }} activeDocName={documents.find(d => d.id === activeDocId)?.name || null} />}
 
-                    <div className="p-4 border-t border-gray-100 dark:border-gray-700">
-                        <div className="flex items-center gap-3 mb-4 px-2">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
-                                {user.full_name[0]}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate dark:text-white">{user.full_name}</p>
-                                <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                            </div>
-                        </div>
-                        <button onClick={() => { setUser(null); }} className="w-full py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg">Sign Out</button>
+            <div className={`fixed inset-y-0 left-0 z-40 flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} ${isSidebarCollapsed ? 'lg:w-20' : 'lg:w-80'} w-80 h-full`}>
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700 h-20 flex justify-between items-center">
+                    <div className={`flex items-center gap-3 ${isSidebarCollapsed ? 'lg:hidden' : ''}`}><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center text-white font-bold">E</div><div><h1 className="text-xl font-bold dark:text-white">Edtech AI</h1></div></div>
+                    <button onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} className="hidden lg:block p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">{isSidebarCollapsed ? 'E' : <IconMenu />}</button>
+                    <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-gray-500"><IconClose /></button>
+                </div>
+                
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-primary-600 text-white flex items-center justify-center font-bold">{currentUser.name[0]}</div>
+                        {!isSidebarCollapsed && <div className="flex-1 min-w-0"><p className="text-sm font-semibold truncate dark:text-white">{currentUser.name}</p><p className="text-xs text-gray-500 uppercase">{currentUser.plan}</p></div>}
                     </div>
+                    {!isSidebarCollapsed && currentUser.plan === 'free' && <button onClick={() => setShowPricingModal(true)} className="mt-3 w-full py-1.5 text-xs font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-lg flex items-center justify-center gap-2"><IconStar /> Upgrade</button>}
+                    {!isSidebarCollapsed && currentUser.role === 'admin' && <button onClick={() => setShowAdminPanel(true)} className="mt-2 w-full py-1.5 text-xs bg-gray-900 text-white rounded-lg flex items-center justify-center gap-2"><IconShield /> Admin</button>}
+                </div>
+
+                <div className="p-4 space-y-2 border-b border-gray-200 dark:border-gray-700">
+                    {!isSidebarCollapsed && <h3 className="text-xs font-bold text-gray-400 uppercase">AI Tools</h3>}
+                    <button onClick={() => setShowRubricModal(true)} className="w-full flex items-center gap-2 p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 text-sm font-medium"><IconTable /> {!isSidebarCollapsed && 'Rubric Generator'}</button>
+                    <button onClick={() => setShowLessonModal(true)} className="w-full flex items-center gap-2 p-2 rounded-lg bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 text-sm font-medium"><IconClipboard /> {!isSidebarCollapsed && 'Lesson Planner'}</button>
+                    <button onClick={() => setShowAssessmentModal(true)} className="w-full flex items-center gap-2 p-2 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 text-sm font-medium"><IconClipboardCheck /> {!isSidebarCollapsed && 'Assessment Gen'}</button>
+                </div>
+
+                <div className="p-4 flex-1 overflow-y-auto">
+                    <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all">
+                        <div className="flex flex-col items-center pt-2 pb-3">{isProcessingFile ? <div className="loader w-6 h-6 border-2 border-primary-600 rounded-full animate-spin"></div> : <IconUpload />}<p className="text-xs text-gray-500 mt-1">{!isSidebarCollapsed && (isProcessingFile ? 'Processing...' : 'Upload File')}</p></div>
+                        <input type="file" className="hidden" onChange={handleFileUpload} disabled={isProcessingFile} />
+                    </label>
+                    {fileError && !isSidebarCollapsed && <p className="text-xs text-red-500 mt-2 text-center">{fileError}</p>}
+                    
+                    <div className="mt-6 space-y-2">
+                        {!isSidebarCollapsed && <h3 className="text-xs font-bold text-gray-400 uppercase">Documents</h3>}
+                        {documents.map(doc => (
+                            <div key={doc.id} onClick={() => setActiveDocId(doc.id)} className={`flex items-center p-2 rounded-lg cursor-pointer ${activeDocId === doc.id ? 'bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+                                <IconFile type={doc.type} />
+                                {!isSidebarCollapsed && <div className="ml-3 flex-1 min-w-0"><p className={`text-sm font-medium truncate ${activeDocId === doc.id ? 'text-primary-700 dark:text-primary-300' : 'text-gray-700 dark:text-gray-300'}`}>{doc.name}</p><p className="text-[10px] text-gray-400">{formatBytes(doc.size)}</p></div>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                    <button onClick={handleLogout} className="flex items-center justify-center w-full gap-2 p-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"><IconLogout /> {!isSidebarCollapsed && 'Sign Out'}</button>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col md:ml-64 h-full relative">
-                {/* Header */}
-                <header className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur z-10">
-                    <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 text-gray-600"><IconMenu /></button>
-                    <h2 className="font-semibold text-gray-800 dark:text-white">
-                        {activeTab === 'chat' && 'AI Assistant'}
-                        {activeTab === 'docs' && 'Document Library'}
-                        {activeTab === 'calendar' && 'Lesson Planner'}
-                    </h2>
+            <div className="flex-1 flex flex-col min-w-0 relative h-full">
+                <header className="h-16 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-20">
+                    <div className="flex items-center gap-3">
+                        <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2"><IconMenu /></button>
+                        <div className="text-sm breadcrumbs text-gray-500"><span className="font-medium text-gray-900 dark:text-white">Workspace</span> <span className="mx-2">/</span> <span className="text-primary-600 font-medium">{activeDocId ? documents.find(d => d.id === activeDocId)?.name : 'General Chat'}</span></div>
+                    </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => setShowTerms(true)} className="p-2 text-gray-400 hover:text-primary-500"><IconInfo /></button>
+                        <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">{isDarkMode ? <IconSun /> : <IconMoon />}</button>
+                        {currentUser.role === 'admin' && <button onClick={() => setShowSettings(!showSettings)} className={`p-2 rounded-lg flex items-center gap-2 ${showSettings ? 'bg-green-100 text-green-700' : 'text-gray-500 hover:bg-gray-100'}`}><IconCpu /><span className="hidden sm:inline text-xs font-bold">Neural Core</span></button>}
                     </div>
                 </header>
 
-                {/* Tab Content */}
-                <main className="flex-1 overflow-hidden relative">
-                    
-                    {/* CHAT TAB */}
-                    {activeTab === 'chat' && (
-                        <div className="flex flex-col h-full">
-                            <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                                {chat.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center opacity-60">
-                                        <IconBot />
-                                        <p className="mt-4 text-lg">How can I help you teach today?</p>
-                                        <p className="text-sm">Try uploading a lesson plan or asking for a quiz.</p>
-                                    </div>
-                                ) : (
-                                    chat.map((msg) => (
-                                        <div key={msg.id} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm ${msg.role === 'user' ? 'bg-primary-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-bl-none'}`}>
-                                                {msg.isThinking && <div className="text-xs text-gray-400 italic mb-2 animate-pulse">Thinking deeply...</div>}
-                                                {msg.role === 'user' ? (
-                                                    <div className="whitespace-pre-wrap">{msg.text}</div>
-                                                ) : (
-                                                    <div className="space-y-2">
-                                                        <MarkdownContent content={msg.text} />
-                                                        <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 opacity-50 hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => navigator.clipboard.writeText(msg.text)} title="Copy" className="p-1 hover:text-primary-500"><IconClipboard /></button>
-                                                            <button onClick={() => handleExportPDF(msg.text, 'response')} title="Export PDF" className="p-1 hover:text-primary-500"><IconDownload /></button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                                <div ref={messagesEndRef} />
+                {showSettings && currentUser.role === 'admin' && (
+                    <div className="absolute top-16 left-0 right-0 z-30 bg-gray-900 border-b border-gray-700 p-6 text-green-500 font-mono shadow-2xl animate-slideDown">
+                        <div className="max-w-5xl mx-auto grid grid-cols-3 gap-8">
+                            <div className="col-span-2">
+                                <h3 className="font-bold mb-2 flex items-center gap-2"><IconCpu /> SYSTEM PROMPT CONFIGURATION</h3>
+                                <textarea value={masterPrompt} onChange={e => setMasterPrompt(e.target.value)} readOnly={!isCoreUnlocked} className={`w-full h-64 bg-black/50 p-4 border rounded-lg resize-none focus:outline-none ${isCoreUnlocked ? 'border-green-500 text-green-400' : 'border-gray-700 text-gray-500'}`} />
                             </div>
-
-                            {/* Input Area */}
-                            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-                                <div className="max-w-4xl mx-auto space-y-3">
-                                    {/* Controls */}
-                                    <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                                        <label className="flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-xs font-medium text-gray-600 dark:text-gray-300 transition-colors whitespace-nowrap">
-                                            <IconUpload /> {fileToUpload ? fileToUpload.name.substring(0, 15) + '...' : 'Attach Context'}
-                                            <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} />
-                                        </label>
-                                        
-                                        <div className="h-4 w-px bg-gray-300 dark:bg-gray-600"></div>
-
-                                        <select 
-                                            value={outputFormat}
-                                            onChange={(e) => setOutputFormat(e.target.value as OutputFormat)}
-                                            className="bg-transparent text-xs font-medium text-gray-600 dark:text-gray-300 outline-none cursor-pointer hover:text-primary-500"
-                                        >
-                                            {FORMAT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                                        </select>
-                                        
-                                        {user.plan !== 'free' && (
-                                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                                <input type="checkbox" checked={useThinking} onChange={e => setUseThinking(e.target.checked)} className="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                                                <span className="text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1"><IconBrain /> Deep Think</span>
-                                            </label>
-                                        )}
-                                    </div>
-
-                                    {/* Text Box */}
-                                    <div className="relative">
-                                        {isProcessingFile && (
-                                            <div className="absolute inset-0 bg-white/70 dark:bg-gray-800/70 z-10 flex items-center justify-center rounded-xl backdrop-blur-sm">
-                                                <div className="flex items-center gap-2 text-sm text-primary-600 font-medium">
-                                                    <div className="loader w-4 h-4 border-2 border-primary-600 border-t-transparent !mb-0" />
-                                                    Extracting text...
-                                                </div>
-                                            </div>
-                                        )}
-                                        <textarea
-                                            value={input}
-                                            onChange={(e) => setInput(e.target.value)}
-                                            onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                                            placeholder="Ask about a lesson plan, rubric, or quiz..."
-                                            className="w-full pl-4 pr-12 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none shadow-sm dark:text-white"
-                                            rows={2}
-                                        />
-                                        <button 
-                                            onClick={handleSend}
-                                            disabled={isStreaming || (!input.trim() && !fileToUpload) || isProcessingFile}
-                                            className="absolute right-2 bottom-2 p-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
-                                        >
-                                            {isStreaming ? <div className="loader w-4 h-4 border-2 border-white border-t-transparent !mb-0" /> : <IconSend />}
-                                        </button>
-                                    </div>
-                                    <p className="text-[10px] text-center text-gray-400">AI can make mistakes. Verify info.</p>
-                                </div>
+                            <div className="space-y-4">
+                                <div className="p-4 border border-green-900/50 bg-green-900/10 rounded"><p className="text-xs uppercase font-bold mb-2">Directives</p><ul className="text-xs list-disc pl-4 space-y-1"><li>Overrides default behavior</li><li>Persists locally</li><li>Applies to all generators</li></ul></div>
+                                <button onClick={() => setIsCoreUnlocked(!isCoreUnlocked)} className="w-full py-2 border border-green-500 text-green-500 hover:bg-green-500 hover:text-black font-bold uppercase text-xs rounded transition-all">{isCoreUnlocked ? 'Lock Core' : 'Unlock Core'}</button>
+                                {isCoreUnlocked && <button onClick={() => { localStorage.setItem(STORAGE_KEYS.PROMPT, masterPrompt); setIsCoreUnlocked(false); }} className="w-full py-2 bg-green-600 text-black font-bold uppercase text-xs rounded hover:bg-green-500">Save Changes</button>}
                             </div>
                         </div>
-                    )}
+                    </div>
+                )}
 
-                    {/* DOCS TAB */}
-                    {activeTab === 'docs' && (
-                        <div className="p-6 h-full overflow-y-auto">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-lg font-bold dark:text-white">Your Documents ({docs.length})</h3>
-                                <label className={`px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 cursor-pointer flex items-center gap-2 shadow-sm font-medium transition-transform active:scale-95 ${isProcessingFile ? 'opacity-50 cursor-wait' : ''}`}>
-                                    {isProcessingFile ? <div className="loader w-4 h-4 border-2 border-white border-t-transparent !mb-0"/> : <IconUpload />} 
-                                    {isProcessingFile ? 'Uploading...' : 'Upload New'}
-                                    <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={handleFileUpload} disabled={isProcessingFile} />
-                                </label>
-                            </div>
-                            {docs.length === 0 ? (
-                                <div className="text-center py-20 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700">
-                                    <p className="text-gray-400">No documents yet. Upload a PDF/DOCX to start.</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {docs.map(doc => (
-                                        <div key={doc.id} className="group p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all flex flex-col justify-between">
-                                            <div>
-                                                <div className="flex items-start justify-between mb-2">
-                                                    <IconFile type={doc.type} />
-                                                    <span className="text-xs text-gray-400 uppercase bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{doc.type}</span>
-                                                </div>
-                                                <h4 className="font-semibold text-gray-800 dark:text-gray-100 truncate mb-1" title={doc.name}>{doc.name}</h4>
-                                                <p className="text-xs text-gray-500">{(doc.size / 1024).toFixed(1)} KB • {new Date(doc.created_at || 0).toLocaleDateString()}</p>
-                                            </div>
-                                            <div className="mt-4 flex gap-2 pt-4 border-t border-gray-100 dark:border-gray-700">
-                                                <button onClick={() => { setInput(`Analyze this document: \n\n${doc.content.substring(0, 5000)}...`); setActiveTab('chat'); }} className="flex-1 text-xs py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 font-medium">Analyze</button>
-                                                <button onClick={() => {
-                                                    const key = `${STORAGE_KEYS.DOCS_PREFIX}${user.id}`; // Simple delete for now
-                                                    // In real app, call API
-                                                    setDocs(d => d.filter(x => x.id !== doc.id));
-                                                }} className="p-2 text-gray-400 hover:text-red-500 rounded hover:bg-red-50 dark:hover:bg-red-900/20"><IconTrash /></button>
-                                            </div>
-                                        </div>
+                <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth" id="chat-container">
+                    <div className="max-w-4xl mx-auto space-y-6 pb-4">
+                        {showWelcome && (
+                            <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
+                                <div className="w-20 h-20 bg-primary-100 rounded-3xl flex items-center justify-center mb-6 text-primary-600 shadow-xl"><IconBot /></div>
+                                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">How can I help you today?</h2>
+                                <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-8">Upload a lesson plan, rubric, or document to the left, or just ask me anything about pedagogy.</p>
+                                <div className="grid grid-cols-2 gap-4 w-full max-w-xl">
+                                    {['Create a 5E Lesson Plan', 'Generate Bloom\'s Questions', 'Draft a Rubric', 'Summarize this doc'].map(hint => (
+                                        <button key={hint} onClick={() => setInput(hint)} className="p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-md text-sm font-medium text-gray-600 dark:text-gray-300 transition-all text-left">{hint} →</button>
                                     ))}
                                 </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* CALENDAR TAB */}
-                    {activeTab === 'calendar' && (
-                        <div className="p-6 h-full overflow-y-auto">
-                            <div className="mb-8">
-                                <h3 className="text-lg font-bold dark:text-white mb-4">Add New Event</h3>
-                                <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col md:flex-row gap-3 items-end">
-                                    <div className="flex-1 w-full">
-                                        <label className="text-xs text-gray-500 mb-1 block">Title</label>
-                                        <input 
-                                            value={newEvent.title} 
-                                            onChange={e => setNewEvent({...newEvent, title: e.target.value})}
-                                            placeholder="e.g., Math Quiz, History Lesson" 
-                                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
-                                        />
-                                    </div>
-                                    <div className="w-full md:w-48">
-                                        <label className="text-xs text-gray-500 mb-1 block">Date</label>
-                                        <input 
-                                            type="date" 
-                                            value={newEvent.date} 
-                                            onChange={e => setNewEvent({...newEvent, date: e.target.value})}
-                                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
-                                        />
-                                    </div>
-                                    <div className="w-full md:w-32">
-                                        <label className="text-xs text-gray-500 mb-1 block">Type</label>
-                                        <select 
-                                            value={newEvent.type} 
-                                            onChange={e => setNewEvent({...newEvent, type: e.target.value as any})}
-                                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
-                                        >
-                                            <option value="class">Class</option>
-                                            <option value="deadline">Deadline</option>
-                                            <option value="meeting">Meeting</option>
-                                        </select>
-                                    </div>
-                                    <button 
-                                        onClick={handleAddEvent}
-                                        disabled={!newEvent.title || !newEvent.date}
-                                        className="w-full md:w-auto px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                                    >
-                                        Add
-                                    </button>
+                            </div>
+                        )}
+                        {messages.map(msg => (
+                            <div key={msg.id} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}>
+                                {msg.role === 'model' && <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center flex-shrink-0 mt-1 shadow-md text-white text-xs font-bold">AI</div>}
+                                <div className={`max-w-[90%] rounded-2xl p-5 shadow-sm ${msg.role === 'user' ? 'bg-primary-600 text-white rounded-tr-sm' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-tl-sm text-gray-800 dark:text-gray-100'} ${msg.isError ? 'bg-red-50 border-red-500 dark:bg-red-900/20' : ''}`}>
+                                    {msg.role === 'user' ? <p className="whitespace-pre-wrap">{msg.text}</p> : <MarkdownContent content={msg.text} />}
+                                    {msg.role === 'model' && !msg.isError && (
+                                        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                                            <button onClick={() => navigator.clipboard.writeText(msg.text)} className="text-xs flex items-center gap-1 text-gray-400 hover:text-primary-500"><IconCopy /> Copy</button>
+                                            <span className="text-gray-300">|</span>
+                                            <button onClick={() => { const d = new window.jspdf.jsPDF(); d.text(d.splitTextToSize(msg.text, 180), 10, 10); d.save('export.pdf'); }} className="text-xs font-bold text-red-400 hover:text-red-500">PDF</button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
+                        ))}
+                        {isLoading && <div className="flex gap-4"><div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse"></div><div className="p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border dark:border-gray-700 flex gap-1"><div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce"></div><div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-75"></div><div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-150"></div></div></div>}
+                        <div ref={messagesEndRef} />
+                    </div>
+                </div>
 
-                            <h3 className="text-lg font-bold dark:text-white mb-4">Upcoming Schedule</h3>
-                            <div className="space-y-4">
-                                {events.map(ev => (
-                                    <div key={ev.id} className="flex items-center p-4 bg-white dark:bg-gray-800 rounded-xl border-l-4 border-green-500 shadow-sm transition-transform hover:translate-x-1">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${
-                                                    ev.type === 'deadline' ? 'bg-red-100 text-red-600' : 
-                                                    ev.type === 'meeting' ? 'bg-blue-100 text-blue-600' : 
-                                                    'bg-green-100 text-green-600'
-                                                }`}>{ev.type}</span>
-                                                <span className="text-xs text-gray-400 font-mono">{ev.date}</span>
-                                            </div>
-                                            <h4 className="font-medium text-gray-800 dark:text-gray-100">{ev.title}</h4>
-                                        </div>
-                                        <button onClick={async () => {
-                                            await api.deleteEvent(user.id, ev.id);
-                                            setEvents(prev => prev.filter(e => e.id !== ev.id));
-                                        }} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><IconTrash /></button>
-                                    </div>
-                                ))}
-                                {events.length === 0 && (
-                                    <div className="text-center py-12 opacity-50">
-                                        <IconCalendar />
-                                        <p className="mt-2 text-sm">No events scheduled. Add one above!</p>
-                                    </div>
-                                )}
-                            </div>
+                <div className="p-4 bg-white/90 dark:bg-gray-900/90 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700 z-20">
+                    <div className="max-w-4xl mx-auto">
+                        <div className="flex gap-2 mb-2 overflow-x-auto pb-1 scrollbar-hide">
+                            {FORMAT_OPTIONS.map(opt => (
+                                <button key={opt.id} onClick={() => setSelectedFormat(opt.id)} className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1 ${selectedFormat === opt.id ? 'bg-primary-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200'}`}>{selectedFormat === opt.id && <IconFormat />}{opt.label}</button>
+                            ))}
                         </div>
-                    )}
-
-                </main>
+                        <div className="relative flex items-end gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm focus-within:ring-2 focus-within:ring-primary-500 transition-all">
+                            <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}} placeholder="Type a message..." className="w-full bg-transparent border-none focus:ring-0 resize-none py-3 px-3 text-sm dark:text-white max-h-32" rows={1} />
+                            <button onClick={handleSend} disabled={!input.trim() || isLoading} className="p-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50 shadow-md transition-all mb-0.5"><IconSend /></button>
+                        </div>
+                        <p className="text-center text-[10px] text-gray-400 mt-2">AI can make mistakes. Verify important information.</p>
+                    </div>
+                </div>
             </div>
-
-            {/* Modals */}
-            <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
-            <ApiKeyModal isOpen={showApiKey} onClose={() => setShowApiKey(false)} />
-            <PricingModal isOpen={showPricing} onClose={() => setShowPricing(false)} user={user} />
-            {user.role === 'admin' && <AdminSettingsModal isOpen={showAdmin} onClose={() => setShowAdmin(false)} user={user} />}
         </div>
     );
 };

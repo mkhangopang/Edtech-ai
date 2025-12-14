@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Edtech AI</title>
+    <title>Edtech AI - Smart Education OS</title>
     
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -18,26 +18,51 @@
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Inter', 'sans-serif'],
+              sans: ['"Plus Jakarta Sans"', 'sans-serif'],
             },
             colors: {
               primary: {
-                50: '#eef2ff',
-                100: '#e0e7ff',
-                500: '#6366f1',
-                600: '#4f46e5',
-                700: '#4338ca',
+                50: '#eff6ff',
+                100: '#dbeafe',
+                200: '#bfdbfe',
+                300: '#93c5fd',
+                400: '#60a5fa',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                800: '#1e40af',
+                900: '#1e3a8a',
               },
+              gray: {
+                850: '#172033', // Custom dark background
+                900: '#0f172a',
+              }
             },
-            screens: {
-              'xs': '475px',
+            animation: {
+              fadeIn: 'fadeIn 0.3s ease-out',
+              slideUp: 'slideUp 0.4s ease-out',
+              slideDown: 'slideDown 0.3s ease-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideUp: {
+                '0%': { transform: 'translateY(10px)', opacity: '0' },
+                '100%': { transform: 'translateY(0)', opacity: '1' },
+              },
+              slideDown: {
+                '0%': { transform: 'translateY(-10px)', opacity: '0' },
+                '100%': { transform: 'translateY(0)', opacity: '1' },
+              }
             }
           }
         }
       }
     </script>
 
-    <!-- PDF.js -->
+    <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
       // Safe initialization of PDF worker
@@ -51,58 +76,44 @@
         });
       }
     </script>
-
-    <!-- Mammoth.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    
-    <!-- Marked.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
-    
-    <!-- jsPDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
     <style>
       html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-      body { font-family: 'Inter', sans-serif; background-color: #f9fafb; }
+      body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; }
       @media (prefers-color-scheme: dark) {
-        body { background-color: #111827; }
+        body { background-color: #0f172a; }
       }
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-      .dark ::-webkit-scrollbar-thumb { background: #475569; }
+      
+      /* Markdown Styles */
+      .markdown-body { font-size: 0.95rem; line-height: 1.6; }
+      .markdown-body h1 { font-size: 1.5em; font-weight: 800; margin-top: 1em; margin-bottom: 0.5em; letter-spacing: -0.025em; }
+      .markdown-body h2 { font-size: 1.25em; font-weight: 700; margin-top: 1em; margin-bottom: 0.5em; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.3em; }
+      .dark .markdown-body h2 { border-color: #334155; }
+      .markdown-body h3 { font-size: 1.1em; font-weight: 600; margin-top: 1em; margin-bottom: 0.5em; }
+      .markdown-body ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
+      .markdown-body ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 1em; }
+      .markdown-body li { margin-bottom: 0.25em; }
+      .markdown-body strong { font-weight: 700; color: inherit; }
+      .markdown-body p { margin-bottom: 1em; }
+      .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 1em; font-size: 0.9em; }
+      .markdown-body th, .markdown-body td { border: 1px solid #cbd5e1; padding: 0.5em 0.75em; text-align: left; }
+      .dark .markdown-body th, .dark .markdown-body td { border-color: #475569; }
+      .markdown-body th { background-color: #f1f5f9; font-weight: 600; }
+      .dark .markdown-body th { background-color: #1e293b; }
+      .markdown-body tr:nth-child(even) { background-color: #f8fafc; }
+      .dark .markdown-body tr:nth-child(even) { background-color: #0f172a; }
+
+      /* Custom Scrollbar */
       .scrollbar-hide::-webkit-scrollbar { display: none; }
       .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       
-      .prose { max-width: none; line-height: 1.6; }
-      .prose p { margin-bottom: 0.75em; }
-      .prose ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 0.75em; }
-      .prose ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 0.75em; }
-      .prose h1, .prose h2, .prose h3 { font-weight: 600; margin-top: 1em; margin-bottom: 0.5em; color: inherit; }
-      .prose pre { background: #1e293b; padding: 1em; border-radius: 8px; overflow-x: auto; margin-bottom: 1em; color: #e2e8f0; }
-      .prose table { width: 100%; border-collapse: collapse; margin-bottom: 1em; font-size: 0.95em; }
-      .prose th { background: rgba(0,0,0,0.05); font-weight: 600; text-align: left; padding: 0.75em; border-bottom: 2px solid rgba(0,0,0,0.1); }
-      .dark .prose th { background: rgba(255,255,255,0.05); border-bottom: 2px solid rgba(255,255,255,0.1); }
-      .prose td { padding: 0.75em; border-bottom: 1px solid rgba(0,0,0,0.1); }
-      .dark .prose td { border-bottom: 1px solid rgba(255,255,255,0.1); }
-
-      /* Loading Spinner */
-      .loader {
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid #6366f1;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin-bottom: 1rem;
-      }
-      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      #loading-screen {
-        position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: #fff; z-index: 9999;
-      }
-      @media (prefers-color-scheme: dark) {
-        #loading-screen { background: #111827; color: #fff; }
-      }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+      .dark ::-webkit-scrollbar-thumb { background: #334155; }
+      ::-webkit-scrollbar-track { background: transparent; }
     </style>
   <script type="importmap">
 {
@@ -117,24 +128,8 @@
 }
 </script>
 </head>
-  <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
-    <div id="root">
-      <div id="loading-screen">
-        <div class="loader"></div>
-        <p class="font-medium text-gray-500 dark:text-gray-400">Loading Edtech AI...</p>
-      </div>
-    </div>
-
-    <!-- Error Handler -->
-    <script>
-      window.addEventListener('error', function(e) {
-        if(e.message && (e.message.includes('import') || e.message.includes('module'))) {
-           const root = document.getElementById('root');
-           root.innerHTML = '<div style="padding:20px; color:red;"><h3>Startup Error</h3><p>Failed to load application modules. Please check your network connection.</p><pre style="background:#eee; padding:10px; font-size:12px; overflow:auto;">'+e.message+'</pre></div>';
-        }
-      });
-    </script>
-    
+  <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200 antialiased selection:bg-primary-100 selection:text-primary-700">
+    <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
