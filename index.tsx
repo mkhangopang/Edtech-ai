@@ -18,7 +18,8 @@ const getEnv = (key: string) => {
 const ENV_URL = getEnv('VITE_SUPABASE_URL');
 const ENV_KEY = getEnv('VITE_SUPABASE_ANON_KEY');
 
-const isSupabaseConfigured = !!(ENV_URL && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key");
+// Enhanced check to ensure URL is actually a URL
+const isSupabaseConfigured = !!(ENV_URL && ENV_URL.startsWith('http') && ENV_URL !== "https://your-project.supabase.co" && ENV_KEY && ENV_KEY !== "your-anon-key");
 
 // Prevent initializing client with bad data to avoid network timeouts/errors
 const supabase: SupabaseClient | null = isSupabaseConfigured 
@@ -377,7 +378,14 @@ const handleExportPDF = (content: string, filename: string) => {
 const MarkdownContent = ({ content }: { content: string }) => {
   const [html, setHtml] = useState('');
   useEffect(() => {
-    if (window.marked) setHtml(window.marked.parse(content));
+    if (window.marked) {
+        // SECURITY: Basic sanitization config
+        window.marked.setOptions({
+            breaks: true, // Render newlines as breaks
+            gfm: true
+        });
+        setHtml(window.marked.parse(content));
+    }
     else setHtml(content);
   }, [content]);
   return <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed break-words" dangerouslySetInnerHTML={{ __html: html }} />;
@@ -538,632 +546,580 @@ const PricingModal = ({ isOpen, onClose, user }: { isOpen: boolean, onClose: () 
             alert(`Upgraded to ${plan}! Refreshing...`);
             window.location.reload();
         }
-    };
-
+    }
+    
     return (
-         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 max-w-3xl w-full shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-bold dark:text-white">Upgrade Plan</h2>
-                    <button onClick={onClose}><IconClose /></button>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md p-4 animate-fadeIn">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-200 dark:border-gray-700 p-8 relative">
+                <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><IconClose/></button>
+                <div className="text-center mb-10">
+                    <h2 className="text-3xl font-bold dark:text-white mb-2">Upgrade Your Teaching Toolkit</h2>
+                    <p className="text-gray-500">Choose the plan that fits your classroom needs.</p>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {Object.entries(PLAN_LIMITS).map(([key, val]) => (
-                        <div key={key} className={`border ${user.plan === key ? 'border-primary-500 ring-2 ring-primary-500' : 'border-gray-200 dark:border-gray-700'} rounded-xl p-6 relative`}>
-                            {user.plan === key && <div className="absolute top-2 right-2 text-xs font-bold text-primary-600 bg-primary-50 px-2 py-1 rounded">CURRENT</div>}
-                            <h3 className="font-bold text-lg capitalize dark:text-white">{key}</h3>
-                            <ul className="mt-4 text-sm space-y-2 text-gray-600 dark:text-gray-400">
-                                <li>{val.maxDocs} Documents</li>
-                                <li>{val.maxSizeMB}MB Max Size</li>
-                            </ul>
+                <div className="grid md:grid-cols-3 gap-6">
+                    {Object.entries(PLAN_LIMITS).map(([key, limit]) => (
+                        <div key={key} className={`border rounded-xl p-6 flex flex-col ${user.plan === key ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/10 ring-2 ring-primary-500' : 'border-gray-200 dark:border-gray-700'}`}>
+                            <h3 className="text-xl font-bold dark:text-white capitalize">{limit.label}</h3>
+                            <div className="mt-4 space-y-2 text-sm text-gray-600 dark:text-gray-300 flex-1">
+                                <p>• {limit.maxDocs === 999 ? 'Unlimited' : limit.maxDocs} Documents</p>
+                                <p>• {limit.maxSizeMB}MB Upload Limit</p>
+                                <p>• {key === 'free' ? 'Basic' : 'Advanced'} AI Reasoning</p>
+                            </div>
                             <button 
                                 onClick={() => handleUpgrade(key as PlanType)}
                                 disabled={user.plan === key}
-                                className={`mt-6 w-full py-2 rounded-lg text-sm font-bold ${user.plan === key ? 'bg-gray-100 text-gray-400' : 'bg-primary-600 text-white hover:bg-primary-700'}`}
+                                className={`mt-6 w-full py-2 rounded-lg font-bold ${user.plan === key ? 'bg-gray-200 text-gray-500 cursor-default' : 'bg-primary-600 text-white hover:bg-primary-700'}`}
                             >
-                                {user.plan === key ? 'Active' : 'Select'}
+                                {user.plan === key ? 'Current Plan' : 'Select'}
                             </button>
                         </div>
                     ))}
                 </div>
             </div>
-         </div>
-    );
-};
-
-const GeneratorModal = ({ title, icon, isOpen, onClose, children, onGenerate }: any) => {
-    if(!isOpen) return null;
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-gray-700 flex flex-col">
-                <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800 rounded-t-2xl">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                        {icon} {title}
-                    </h2>
-                    <button onClick={onClose}><IconClose /></button>
-                </div>
-                <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">{children}</div>
-                <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-2xl flex justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">Cancel</button>
-                    <button onClick={onGenerate} className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700 shadow-md">Generate</button>
-                </div>
-            </div>
         </div>
     );
 };
 
-// --- Calendar View Component ---
-const CalendarView = ({ user }: { user: UserProfile }) => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const [currentDate, setCurrentDate] = useState(new Date());
-    const [events, setEvents] = useState<CalendarEvent[]>([]);
-    const [newEventTitle, setNewEventTitle] = useState('');
-    const [selectedDate, setSelectedDate] = useState<number | null>(null);
-
-    // Fetch events on mount and when date changes (mock efficiency, just refetching all for now)
-    useEffect(() => {
-        const fetchEvents = async () => {
-            const data = await api.getEvents(user.id);
-            setEvents(data);
-        };
-        fetchEvents();
-    }, [user.id]);
-
-    const handleAddEvent = async () => {
-        if(!newEventTitle || !selectedDate) return;
-        const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), selectedDate);
-        // Correct date offset issue by using UTC string components or simple string concat
-        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2, '0')}-${String(selectedDate).padStart(2, '0')}`;
-        
-        const event: CalendarEvent = {
-            id: crypto.randomUUID(),
-            title: newEventTitle,
-            date: dateStr,
-            type: 'class'
-        };
-        
-        // Optimistic UI
-        setEvents([...events, event]);
-        await api.saveEvent(user.id, event);
-        
-        setNewEventTitle('');
-        setSelectedDate(null);
-    };
-
-    const handleDeleteEvent = async (e: React.MouseEvent, id: string) => {
-        e.stopPropagation();
-        if(confirm("Delete this event?")) {
-            setEvents(events.filter(ev => ev.id !== id));
-            await api.deleteEvent(user.id, id);
-        }
-    }
-
-    const getEventsForDay = (day: number) => {
-        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        return events.filter(e => e.date === dateStr);
-    };
-    
-    return (
-        <div className="p-4 md:p-8 h-full overflow-y-auto">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Class Calendar</h1>
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
-                <div className="flex justify-between items-center mb-6">
-                    <div className="flex gap-4 items-center">
-                        <h2 className="text-lg font-bold dark:text-white">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
-                         <div className="flex gap-1">
-                            <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()-1))} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">←</button>
-                            <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth()+1))} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">→</button>
-                         </div>
-                    </div>
-                    <button onClick={() => setCurrentDate(new Date())} className="text-sm text-primary-600">Today</button>
-                </div>
-                
-                {selectedDate && (
-                    <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg flex gap-2 animate-fadeIn">
-                        <input 
-                            value={newEventTitle} 
-                            onChange={e => setNewEventTitle(e.target.value)} 
-                            placeholder={`Event for ${currentDate.toLocaleString('default', {month:'short'})} ${selectedDate}...`}
-                            className="flex-1 bg-transparent border-b border-gray-300 dark:border-gray-700 outline-none text-sm dark:text-white"
-                            autoFocus
-                            onKeyDown={e => e.key === 'Enter' && handleAddEvent()}
-                        />
-                        <button onClick={handleAddEvent} className="text-xs bg-primary-600 text-white px-3 py-1 rounded">Add</button>
-                        <button onClick={() => setSelectedDate(null)} className="text-xs text-gray-500">Cancel</button>
-                    </div>
-                )}
-
-                <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-                    {days.map(d => (
-                        <div key={d} className="bg-gray-50 dark:bg-gray-800 p-2 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">{d}</div>
-                    ))}
-                    {Array.from({length: new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate()}).map((_, i) => {
-                        const day = i + 1;
-                        const dayEvents = getEventsForDay(day);
-                        return (
-                            <div key={i} onClick={() => setSelectedDate(day)} className={`bg-white dark:bg-gray-800 p-2 min-h-[100px] hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer relative ${selectedDate === day ? 'ring-2 ring-inset ring-primary-500' : ''}`}>
-                                <span className="text-xs font-medium text-gray-400">{day}</span>
-                                <div className="mt-1 space-y-1">
-                                    {dayEvents.map(ev => (
-                                        <div key={ev.id} className="group relative text-[10px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded truncate pr-4">
-                                            {ev.title}
-                                            <button onClick={(e) => handleDeleteEvent(e, ev.id)} className="hidden group-hover:block absolute right-0 top-0 bottom-0 px-1 text-red-500 hover:bg-red-100">×</button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const ChatInterface = ({ 
-    activeDoc, messages, isThinking, onSendMessage, onClearChat, onClearContext, onSuggestionClick 
-}: any) => {
-    const [input, setInput] = useState('');
-    const [useDeepThink, setUseDeepThink] = useState(false);
-    const endRef = useRef<HTMLDivElement>(null);
-    useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, isThinking]);
-
-    const handleSend = () => { if(input.trim()) { onSendMessage(input, 'auto', { useDeepThink }); setInput(''); } };
-    
-    return (
-        <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative">
-            <div className="h-14 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 bg-white dark:bg-gray-900 z-10 sticky top-0">
-                 <div className="flex items-center gap-2 overflow-hidden">
-                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${activeDoc ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                     <span className="text-sm font-medium text-gray-600 dark:text-gray-300 truncate max-w-[150px] xs:max-w-none">
-                         {activeDoc ? activeDoc.name : 'General Context'}
-                     </span>
-                     {activeDoc && <button onClick={onClearContext} className="text-gray-400 hover:text-red-500"><IconClose /></button>}
-                 </div>
-                 <div className="flex gap-2">
-                     <button onClick={() => messages.length && handleExportPDF(messages[messages.length-1].text, "Export")} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"><IconDownload /></button>
-                     <button onClick={onClearChat} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"><IconTrash /></button>
-                 </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
-                {!messages.length && (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-400 opacity-50">
-                        <IconBot />
-                        <p className="mt-2 text-sm">Select a document or start typing.</p>
-                    </div>
-                )}
-                {messages.map((msg: Message) => (
-                    <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                        <div className={`max-w-[90%] md:max-w-[80%] rounded-2xl p-4 shadow-sm ${msg.role === 'user' ? 'bg-primary-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-bl-none'}`}>
-                            {msg.role === 'model' ? <MarkdownContent content={msg.text} /> : <p className="whitespace-pre-wrap">{msg.text}</p>}
-                        </div>
-                        {msg.suggestions && msg.suggestions.length > 0 && (
-                            <div className="flex gap-2 mt-2 flex-wrap justify-end md:justify-start animate-fadeIn">
-                                {msg.suggestions.map((s: Suggestion, i: number) => (
-                                    <button key={i} onClick={() => onSuggestionClick(s)} className="text-xs flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 px-3 py-1.5 rounded-full border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors shadow-sm">
-                                        ✨ {s.label}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                ))}
-                {isThinking && (
-                    <div className="flex justify-start"><div className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-2xl rounded-bl-none p-4 shadow-sm flex gap-2"><div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce"></div><div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-75"></div><div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-150"></div></div></div>
-                )}
-                <div ref={endRef} />
-            </div>
-
-            <div className="p-4 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 sticky bottom-0 z-20">
-                <div className="relative">
-                    <textarea 
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-                        placeholder="Type a message..."
-                        className="w-full pl-10 pr-12 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-primary-500 outline-none resize-none shadow-sm dark:text-white"
-                        rows={1}
-                    />
-                    <button 
-                        onClick={() => setUseDeepThink(!useDeepThink)}
-                        className={`absolute left-3 bottom-3 transition-colors ${useDeepThink ? 'text-purple-500 animate-pulse' : 'text-gray-400 hover:text-purple-500'}`}
-                        title={useDeepThink ? "Deep Think Active (Slower, reasoned)" : "Enable Deep Think"}
-                    >
-                        <IconBrain />
-                    </button>
-                    {useDeepThink && <span className="absolute left-10 bottom-3.5 text-xs text-purple-500 font-bold pointer-events-none animate-fadeIn">Thinking Mode</span>}
-                    <button onClick={handleSend} disabled={!input.trim() || isThinking} className="absolute right-2 bottom-2 p-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"><IconSend /></button>
-                </div>
-                <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide">
-                    {FORMAT_OPTIONS.map(fmt => (
-                        <button key={fmt.id} onClick={() => onSendMessage(input || "Generate.", fmt.id, { useDeepThink })} className="text-xs px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 whitespace-nowrap">{fmt.label}</button>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- App Component ---
-
+// --- APP COMPONENT ---
 const App = () => {
     const [user, setUser] = useState<UserProfile | null>(null);
-    const [view, setView] = useState<'chat' | 'calendar' | 'dashboard'>('dashboard');
-    const [docs, setDocs] = useState<DocumentFile[]>([]);
-    const [activeDocId, setActiveDocId] = useState<string | null>(null);
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [isThinking, setIsThinking] = useState(false);
-    const [isSidebarOpen, setSidebarOpen] = useState(false);
+    const [isInitializing, setInitializing] = useState(true);
+    const [activeTab, setActiveTab] = useState<'chat' | 'docs' | 'calendar'>('chat');
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     
+    // Data States
+    const [docs, setDocs] = useState<DocumentFile[]>([]);
+    const [chat, setChat] = useState<Message[]>([]);
+    const [events, setEvents] = useState<CalendarEvent[]>([]);
+    
+    // UI States
+    const [input, setInput] = useState('');
+    const [isStreaming, setStreaming] = useState(false);
+    const [showApiKey, setShowApiKey] = useState(false);
+    const [showAdmin, setShowAdmin] = useState(false);
+    const [showPricing, setShowPricing] = useState(false);
+    const [showTerms, setShowTerms] = useState(false);
+    const [outputFormat, setOutputFormat] = useState<OutputFormat>('auto');
+    const [useThinking, setUseThinking] = useState(false);
+    const [fileToUpload, setFileToUpload] = useState<File|null>(null);
+    const [isProcessingFile, setIsProcessingFile] = useState(false);
+    const [newEvent, setNewEvent] = useState({ title: '', date: '', type: 'class' });
+
+    // Login States
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+    const [authMode, setAuthMode] = useState<'login'|'signup'>('login');
     const [authLoading, setAuthLoading] = useState(false);
 
-    const [modalState, setModalState] = useState({
-        pricing: false, rubric: false, lesson: false, assessment: false, event: false, settings: false, terms: false, apiKey: false
-    });
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    const [lessonCtx, setLessonCtx] = useState<string>(""); 
+    // Initialization Logic
+    useEffect(() => {
+        const init = async () => {
+            // FIX: Check session validity to prevent 400 errors loop
+            if (supabase) {
+                const { error } = await supabase.auth.getSession();
+                if (error) {
+                   console.warn("Session invalid, clearing...", error);
+                   await supabase.auth.signOut();
+                }
+            }
+
+            const u = await api.getProfile();
+            setUser(u);
+            
+            if (u) {
+                 const [d, c, e] = await Promise.all([
+                     api.getDocs(u.id),
+                     api.getChat(u.id),
+                     api.getEvents(u.id)
+                 ]);
+                 setDocs(d);
+                 setChat(c);
+                 setEvents(e);
+            }
+            // Delay slightly to prevent flicker if fast
+            setTimeout(() => setInitializing(false), 500);
+        };
+        init();
+    }, []);
 
     useEffect(() => {
-        // Safe logging for debug
-        console.log("App Mounted");
-        
-        if (supabase) {
-            const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-                if (session) {
-                    const profile = await api.getProfile();
-                    setUser(profile);
-                    if(profile) {
-                        setDocs(await api.getDocs(profile.id));
-                        setMessages(await api.getChat(profile.id));
-                    }
-                } else {
-                    setUser(null);
-                }
-            });
-            return () => authListener.subscription.unsubscribe();
-        } else {
-            const init = async () => {
-                const profile = await api.getProfile();
-                setUser(profile);
-                if(profile) {
-                    setDocs(await api.getDocs(profile.id));
-                    setMessages(await api.getChat(profile.id));
-                }
-            };
-            init();
-        }
-    }, []);
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [chat]);
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!isSupabaseConfigured) {
+             const mockId = 'user_' + Date.now();
+             const u: UserProfile = { id: mockId, email, full_name: 'Demo User', role: 'user', plan: 'free' };
+             api.saveUserLocal(u);
+             window.location.reload();
+             return;
+        }
         setAuthLoading(true);
         try {
-            if (!supabase) {
-                const u: UserProfile = { 
-                    id: 'local-user', 
-                    email: email, 
-                    full_name: 'Demo Teacher', 
-                    role: 'user', 
-                    plan: 'free' 
-                };
-                api.saveUserLocal(u);
-                setUser(u);
-                alert("Logged in (Demo Mode)");
-                return;
-            }
-
-            if (authMode === 'signin') {
-                const { error } = await supabase.auth.signInWithPassword({ email, password });
+            if (authMode === 'signup') {
+                const { error } = await supabase!.auth.signUp({ email, password, options: { data: { full_name: 'New Educator' } } });
                 if (error) throw error;
+                alert("Check email for confirmation!");
             } else {
-                const { error } = await supabase.auth.signUp({ 
-                    email, 
-                    password, 
-                    options: { data: { full_name: 'New Educator' } } 
-                });
+                const { error } = await supabase!.auth.signInWithPassword({ email, password });
                 if (error) throw error;
-                alert("Account created! You are logged in.");
+                window.location.reload();
             }
-        } catch (error: any) {
-            alert(error.message);
-        } finally {
-            setAuthLoading(false);
-        }
+        } catch(e: any) { alert(e.message); }
+        finally { setAuthLoading(false); }
     };
 
-    const toggleModal = (key: keyof typeof modalState, val: boolean) => setModalState(prev => ({ ...prev, [key]: val }));
-
-    // UPDATED: Handle Streaming
-    const handleSendMessage = async (text: string, formatId: OutputFormat = 'auto', opts: { useActiveDoc?: boolean, type?: string, useDeepThink?: boolean } = {}) => {
+    const handleSend = async () => {
+        if (!input.trim() && !fileToUpload) return;
         if (!user) return;
-        
-        const apiKey = getApiKey();
-        if (!apiKey) { toggleModal('apiKey', true); return; }
+        const key = getApiKey();
+        if (!key) { setShowApiKey(true); return; }
 
-        const newUserMsg: Message = { id: crypto.randomUUID(), role: 'user', text, timestamp: Date.now() };
-        // Optimistically add user message
-        const intermediateMsgs = [...messages, newUserMsg];
-        setMessages(intermediateMsgs);
-        api.saveChat(user.id, intermediateMsgs);
+        const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text: input, timestamp: Date.now() };
         
-        setView('chat');
-        setIsThinking(true);
+        let contextContent = "";
+        if (fileToUpload) {
+             // Basic text extraction for context
+             setIsProcessingFile(true);
+             try {
+                if(fileToUpload.type.includes('pdf')) contextContent = await extractTextFromPDF(fileToUpload);
+                else if(fileToUpload.name.endsWith('docx')) contextContent = await extractTextFromDOCX(fileToUpload);
+                else contextContent = await fileToUpload.text();
+                newUserMsg.text += `\n\n[Attached File Content: ${fileToUpload.name}]\n${contextContent.substring(0, 10000)}...`; // Truncate for token limits
+             } catch(e) {
+                 alert("Failed to read file.");
+                 setIsProcessingFile(false);
+                 return;
+             }
+             setIsProcessingFile(false);
+        }
+        
+        const newChat = [...chat, newUserMsg];
+        setChat(newChat);
+        setInput('');
+        setFileToUpload(null);
+        setStreaming(true);
 
-        const activeDoc = docs.find(d => d.id === activeDocId);
-        const includeDoc = opts.useActiveDoc !== undefined ? opts.useActiveDoc : !!activeDocId;
-        
-        let sys = await api.getMasterPrompt(); 
-        if (includeDoc && activeDoc) sys += `\n\n=== CONTEXT: ${activeDoc.name} ===\n${activeDoc.content.substring(0, 30000)}`;
-        const fmt = FORMAT_OPTIONS.find(f => f.id === formatId);
-        if (fmt) sys += `\n\nFORMAT: ${fmt.instruction}`;
+        const formatInst = FORMAT_OPTIONS.find(f => f.id === outputFormat)?.instruction || "";
+        const masterPrompt = await api.getMasterPrompt();
+        const systemInstruction = `${masterPrompt}\nFormat Requirement: ${formatInst}`;
 
         try {
-            // Create a placeholder message for the AI
-            const aiMsgId = crypto.randomUUID();
-            let aiText = "";
-            // Initial AI message state (empty)
-            setMessages(prev => [...prev, { id: aiMsgId, role: 'model', text: "", timestamp: Date.now(), isThinking: true }]);
-
-            // Stream Loop
-            const stream = api.generateAIStream(apiKey, text, sys, intermediateMsgs, opts.useDeepThink || false);
+            const stream = api.generateAIStream(key, newUserMsg.text, systemInstruction, chat, useThinking);
             
-            for await (const chunkText of stream) {
-                if(chunkText) {
-                    aiText += chunkText;
-                    setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: aiText, isThinking: false } : m));
-                    setIsThinking(false); // First chunk received, stop main thinking loader
-                }
+            let fullResponse = "";
+            const botMsgId = (Date.now() + 1).toString();
+            // Optimistic update
+            setChat(prev => [...prev, { id: botMsgId, role: 'model', text: '', timestamp: Date.now(), isThinking: useThinking }]);
+
+            for await (const chunk of stream) {
+                fullResponse += chunk;
+                setChat(prev => prev.map(m => m.id === botMsgId ? { ...m, text: fullResponse, isThinking: false } : m));
             }
+            
+            // Final save
+            const finalChat: Message[] = [...newChat, { id: botMsgId, role: 'model', text: fullResponse, timestamp: Date.now() }];
+            api.saveChat(user.id, finalChat);
+            setChat(finalChat);
 
-            // Post-generation logic (Suggestions)
-            let suggestions: Suggestion[] = [];
-            if (opts.type === 'lesson' || text.toLowerCase().includes('lesson plan')) {
-                suggestions = [
-                    { label: "Create Quiz for this", action: 'quiz', prompt: `Create a quiz based on this lesson plan.` },
-                    { label: "Generate Rubric", action: 'rubric' }
-                ];
-                setLessonCtx(aiText);
-            } else if (opts.type === 'quiz' || text.toLowerCase().includes('quiz')) {
-                suggestions = [{ label: "Explain Answer Key", action: 'chat', prompt: "Explain the answer key in detail." }];
-            }
-
-            // Update final message with suggestions
-            const finalMsgs: Message[] = [...intermediateMsgs, { id: aiMsgId, role: 'model', text: aiText, timestamp: Date.now(), suggestions }];
-            setMessages(finalMsgs);
-            api.saveChat(user.id, finalMsgs);
-
-        } catch (e) {
-            console.error(e);
-            setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'model', text: "Error connecting to AI. Please check your API key.", timestamp: Date.now(), isError: true }]);
+        } catch(e) {
+             setChat(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "Error generating response. Check API Key.", isError: true, timestamp: Date.now() } as Message]);
         } finally {
-            setIsThinking(false);
+            setStreaming(false);
         }
-    };
-
-    const handleSuggestion = (s: Suggestion) => {
-        if (s.action === 'quiz') toggleModal('assessment', true);
-        else if (s.action === 'rubric') toggleModal('rubric', true);
-        else if (s.prompt) handleSendMessage(s.prompt);
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files?.[0] || !user) return;
-        
-        // FREEMIUM CHECK
-        const limit = PLAN_LIMITS[user.plan].maxDocs;
-        if (docs.length >= limit) {
-             alert(`Plan limit reached (${limit}). Upgrade to add more.`);
-             toggleModal('pricing', true);
-             return;
-        }
-
+        if (!e.target.files || !e.target.files[0] || !user) return;
         const file = e.target.files[0];
+        
+        const limit = PLAN_LIMITS[user.plan];
+        if (file.size > limit.maxSizeMB * 1024 * 1024) { alert(`File too large for ${limit.label}.`); return; }
+        if (docs.length >= limit.maxDocs) { alert(`Doc limit reached for ${limit.label}.`); return; }
+
+        setIsProcessingFile(true);
+        let content = "";
         try {
-            let content = file.type === 'application/pdf' ? await extractTextFromPDF(file) : 
-                          file.name.endsWith('.docx') ? await extractTextFromDOCX(file) : await file.text();
+            if(file.type.includes('pdf')) content = await extractTextFromPDF(file);
+            else if(file.name.endsWith('docx')) content = await extractTextFromDOCX(file);
+            else content = await file.text();
             
-            const doc: DocumentFile = {
-                id: crypto.randomUUID(), user_id: user.id, name: file.name, type: file.type.includes('pdf') ? 'pdf' : 'docx',
-                content, size: file.size, created_at: Date.now()
+            const newDoc: DocumentFile = {
+                id: Date.now().toString(),
+                user_id: user.id,
+                name: file.name,
+                type: file.type.includes('pdf') ? 'pdf' : file.name.endsWith('docx') ? 'docx' : 'txt',
+                content: content,
+                size: file.size,
+                created_at: Date.now()
             };
-            const newDocs = [...docs, doc];
-            setDocs(newDocs);
-            api.saveDoc(doc);
-            setActiveDocId(doc.id);
-            setView('chat');
-        } catch { alert("File parse error"); }
+            
+            await api.saveDoc(newDoc);
+            setDocs(prev => [...prev, newDoc]);
+        } catch(e) { alert("Failed to parse document."); }
+        finally { setIsProcessingFile(false); }
     };
 
-    if (!user) return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
-             <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-200 dark:border-gray-700">
-                 <div className="text-center mb-8">
-                     <div className="w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center text-white font-bold text-xl mx-auto mb-4">E</div>
-                     <h1 className="text-2xl font-bold dark:text-white">Welcome to Edtech AI</h1>
-                     <p className="mt-2 text-gray-600 dark:text-gray-400">Sign in to start planning.</p>
-                     {!supabase && (
-                         <div className="mt-4 p-2 bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs rounded border border-yellow-200 dark:border-yellow-800 flex items-center justify-center gap-2">
-                             <IconOffline /> 
-                             <span>Demo Mode (Local Storage Only)</span>
-                         </div>
-                     )}
-                 </div>
-                 <form onSubmit={handleAuth} className="space-y-4">
-                     <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700 border outline-none dark:text-white" required />
-                     <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-700 border outline-none dark:text-white" required />
-                     <button disabled={authLoading} className="w-full py-3 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-500/30">
-                         {authLoading ? 'Processing...' : (authMode === 'signin' ? 'Sign In' : 'Create Account')}
-                     </button>
-                 </form>
-                 <button onClick={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')} className="mt-4 text-sm text-primary-500 hover:underline w-full text-center">
-                     {authMode === 'signin' ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
-                 </button>
-             </div>
-        </div>
-    );
+    const handleAddEvent = async () => {
+        if(!user || !newEvent.title || !newEvent.date) return;
+        const ev: CalendarEvent = { 
+            id: Date.now().toString(), 
+            title: newEvent.title, 
+            date: newEvent.date, 
+            type: newEvent.type as any 
+        };
+        await api.saveEvent(user.id, ev);
+        setEvents(prev => [...prev, ev]);
+        setNewEvent({ title: '', date: '', type: 'class' });
+    }
 
-    const activeDoc = docs.find(d => d.id === activeDocId);
+    if (isInitializing) {
+        return (
+            <div className="fixed inset-0 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 z-50">
+                <div className="loader"></div>
+                <p className="mt-4 text-gray-500 font-medium">Initializing Edtech AI...</p>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 p-4">
+                <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-200 dark:border-gray-700">
+                    <div className="text-center mb-8">
+                        <div className="w-16 h-16 bg-primary-600 rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-lg shadow-primary-600/30">
+                            <IconBot />
+                        </div>
+                        <h1 className="text-2xl font-bold dark:text-white">Welcome to Edtech AI</h1>
+                        <p className="text-gray-500 mt-2">Your pedagogical co-pilot.</p>
+                    </div>
+                    <form onSubmit={handleAuth} className="space-y-4">
+                        <input 
+                            type="email" required placeholder="Email"
+                            value={email} onChange={e=>setEmail(e.target.value)}
+                            className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white"
+                        />
+                        <input 
+                            type="password" required placeholder="Password"
+                            value={password} onChange={e=>setPassword(e.target.value)}
+                            className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-primary-500 outline-none dark:text-white"
+                        />
+                        <button disabled={authLoading} className="w-full py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition-all flex justify-center items-center">
+                            {authLoading ? <div className="loader h-5 w-5 border-2 border-white border-t-transparent" /> : (authMode === 'login' ? 'Sign In' : 'Create Account')}
+                        </button>
+                    </form>
+                    <div className="mt-6 text-center">
+                        <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-sm text-primary-600 hover:underline">
+                            {authMode === 'login' ? "New here? Create account" : "Have an account? Sign In"}
+                        </button>
+                    </div>
+                    {!isSupabaseConfigured && (
+                        <div className="mt-6 p-3 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 text-xs rounded-lg text-center">
+                            Demo Mode Active (Local Storage Only)
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="flex h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans overflow-hidden">
-            
-            {/* Mobile Header */}
-            <div className="md:hidden fixed top-0 w-full h-14 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-40 flex items-center justify-between px-4">
-                 <div className="flex items-center gap-2 font-bold text-primary-600">Edtech AI</div>
-                 <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2"><IconMenu /></button>
-            </div>
-
-            {/* Sidebar (Collapsible) */}
-            <div className={`fixed inset-y-0 left-0 w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 z-50 shadow-2xl md:shadow-none flex flex-col pt-14 md:pt-0`}>
-                <div className="p-5 flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-bold text-xl tracking-tight">
-                        <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white">E</div>
-                        <span className="hidden md:inline">Edtech AI</span>
+        <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
+            {/* Sidebar */}
+            <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                <div className="flex flex-col h-full">
+                    <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
+                         <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">EA</div>
+                         <span className="font-bold text-lg tracking-tight">Edtech AI</span>
+                         <button onClick={() => setSidebarOpen(false)} className="md:hidden ml-auto"><IconClose /></button>
                     </div>
-                    <button onClick={() => setSidebarOpen(false)} className="md:hidden"><IconClose /></button>
-                </div>
-
-                <div className="px-3 py-2 space-y-1">
-                    {[
-                        { id: 'dashboard', icon: <IconMenu />, label: 'Dashboard' },
-                        { id: 'chat', icon: <IconChat />, label: 'Assistant' },
-                        { id: 'calendar', icon: <IconCalendar />, label: 'Calendar' }
-                    ].map(item => (
-                        <button key={item.id} onClick={() => { setView(item.id as any); setSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${view === item.id ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                            {item.icon} {item.label}
+                    
+                    <div className="p-4 space-y-1 overflow-y-auto flex-1">
+                        <button onClick={() => setActiveTab('chat')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'chat' ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium' : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
+                            <IconChat /> Chat Assistant
                         </button>
-                    ))}
-                </div>
-
-                <div className="px-4 py-4 mt-2">
-                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Documents</h3>
-                    <div className="space-y-1 mb-3 max-h-40 overflow-y-auto scrollbar-hide">
-                        {docs.map(doc => (
-                            <button key={doc.id} onClick={() => { setActiveDocId(doc.id); setView('chat'); setSidebarOpen(false); }} className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm truncate ${activeDocId === doc.id ? 'bg-gray-100 dark:bg-gray-800 font-medium' : 'text-gray-500'}`}>
-                                <IconFile type={doc.type} /> <span className="truncate">{doc.name}</span>
+                        <button onClick={() => setActiveTab('docs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'docs' ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium' : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
+                            <IconCloud /> Documents
+                        </button>
+                        <button onClick={() => setActiveTab('calendar')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'calendar' ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium' : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>
+                            <IconCalendar /> Planner
+                        </button>
+                        
+                        <div className="pt-4 mt-4 border-t border-gray-100 dark:border-gray-700">
+                            <button onClick={() => setShowPricing(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${user.plan === 'pro' ? 'bg-purple-100 text-purple-600' : 'bg-gray-200 text-gray-600'}`}>{user.plan}</span>
+                                <span className="text-sm">Upgrade Plan</span>
                             </button>
-                        ))}
-                    </div>
-                    <label className="flex items-center gap-2 text-sm text-primary-600 hover:text-primary-700 cursor-pointer px-2">
-                        <IconUpload /> Upload New <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={handleFileUpload} />
-                    </label>
-                </div>
-
-                <div className="mt-auto p-4 border-t border-gray-200 dark:border-gray-800">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">{user.email[0].toUpperCase()}</div>
-                        <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate dark:text-white">{user.full_name}</div>
-                            <button onClick={() => toggleModal('pricing', true)} className="text-xs text-primary-500 hover:underline uppercase font-bold">{user.plan}</button>
+                            <button onClick={() => setShowApiKey(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                <IconKey /> <span className="text-sm">API Key</span>
+                            </button>
+                            {user.role === 'admin' && (
+                                <button onClick={() => setShowAdmin(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                    <IconSettings /> <span className="text-sm">Admin</span>
+                                </button>
+                            )}
                         </div>
-                         {user.role === 'admin' && (
-                            <button onClick={() => toggleModal('settings', true)} className="text-gray-400 hover:text-white" title="Admin Settings">
-                                <IconSettings />
-                            </button>
-                        )}
                     </div>
-                    <button onClick={() => { supabase ? supabase.auth.signOut() : (localStorage.removeItem(STORAGE_KEYS.SESSION), window.location.reload()) }} className="w-full py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800">Sign Out</button>
+
+                    <div className="p-4 border-t border-gray-100 dark:border-gray-700">
+                        <div className="flex items-center gap-3 mb-4 px-2">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                                {user.full_name[0]}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate dark:text-white">{user.full_name}</p>
+                                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                            </div>
+                        </div>
+                        <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="w-full py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg">Sign Out</button>
+                    </div>
                 </div>
             </div>
 
-            {/* Main Content Area */}
-            <div className="flex-1 flex flex-col min-w-0 md:pl-64 pt-14 md:pt-0 bg-gray-50 dark:bg-gray-900">
-                 {view === 'dashboard' && (
-                     <div className="p-4 md:p-8 overflow-y-auto h-full">
-                         <div className="flex justify-between items-center mb-6">
-                            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Hello, {user.full_name}</h1>
-                            {supabase ? (
-                                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1"><IconCloud /> Online</span>
-                            ) : (
-                                <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full flex items-center gap-1"><IconOffline /> Offline</span>
-                            )}
-                         </div>
-                         
-                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
-                             {[
-                                 { title: "Lesson Planner", icon: <IconClipboard />, color: "blue", action: () => toggleModal('lesson', true), desc: "Create 5E or UbD plans." },
-                                 { title: "Quiz Maker", icon: <IconClipboardCheck />, color: "green", action: () => toggleModal('assessment', true), desc: "Generate tests with keys." },
-                                 { title: "Rubric Builder", icon: <IconTable />, color: "purple", action: () => toggleModal('rubric', true), desc: "Design grading criteria." }
-                             ].map((tool, i) => (
-                                 <button key={i} onClick={tool.action} className="p-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-all text-left">
-                                     <div className={`w-10 h-10 bg-${tool.color}-100 dark:bg-${tool.color}-900/30 rounded-lg flex items-center justify-center text-${tool.color}-600 mb-4`}>{tool.icon}</div>
-                                     <h3 className="font-bold text-lg mb-1 dark:text-white">{tool.title}</h3>
-                                     <p className="text-sm text-gray-500 dark:text-gray-400">{tool.desc}</p>
-                                 </button>
-                             ))}
-                         </div>
-                         
-                         <div className="bg-gradient-to-r from-primary-800 to-indigo-900 rounded-2xl p-6 md:p-8 text-white relative overflow-hidden shadow-xl">
-                             <div className="relative z-10">
-                                 <h2 className="text-2xl font-bold mb-2">Upload your curriculum</h2>
-                                 <p className="text-indigo-200 mb-4 max-w-lg">Get context-aware lesson plans, quizzes, and worksheets instantly.</p>
-                                 <button onClick={() => setView('chat')} className="px-6 py-2 bg-white text-primary-900 font-bold rounded-lg hover:bg-gray-100 text-sm md:text-base">Open Assistant</button>
-                             </div>
-                         </div>
-                     </div>
-                 )}
-                 
-                 {view === 'calendar' && <CalendarView user={user} />}
+            {/* Main Content */}
+            <div className="flex-1 flex flex-col md:ml-64 h-full relative">
+                {/* Header */}
+                <header className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur z-10">
+                    <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 text-gray-600"><IconMenu /></button>
+                    <h2 className="font-semibold text-gray-800 dark:text-white">
+                        {activeTab === 'chat' && 'AI Assistant'}
+                        {activeTab === 'docs' && 'Document Library'}
+                        {activeTab === 'calendar' && 'Lesson Planner'}
+                    </h2>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setShowTerms(true)} className="p-2 text-gray-400 hover:text-primary-500"><IconInfo /></button>
+                    </div>
+                </header>
 
-                 {view === 'chat' && (
-                     <ChatInterface 
-                         activeDoc={activeDoc} 
-                         messages={messages} 
-                         isThinking={isThinking} 
-                         onSendMessage={handleSendMessage}
-                         onClearChat={() => { setMessages([]); if(user) api.saveChat(user.id, []); }}
-                         onClearContext={() => setActiveDocId(null)}
-                         onSuggestionClick={handleSuggestion}
-                     />
-                 )}
+                {/* Tab Content */}
+                <main className="flex-1 overflow-hidden relative">
+                    
+                    {/* CHAT TAB */}
+                    {activeTab === 'chat' && (
+                        <div className="flex flex-col h-full">
+                            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                                {chat.length === 0 ? (
+                                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center opacity-60">
+                                        <IconBot />
+                                        <p className="mt-4 text-lg">How can I help you teach today?</p>
+                                        <p className="text-sm">Try uploading a lesson plan or asking for a quiz.</p>
+                                    </div>
+                                ) : (
+                                    chat.map((msg) => (
+                                        <div key={msg.id} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm ${msg.role === 'user' ? 'bg-primary-600 text-white rounded-br-none' : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-bl-none'}`}>
+                                                {msg.isThinking && <div className="text-xs text-gray-400 italic mb-2 animate-pulse">Thinking deeply...</div>}
+                                                {msg.role === 'user' ? (
+                                                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        <MarkdownContent content={msg.text} />
+                                                        <div className="flex gap-2 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 opacity-50 hover:opacity-100 transition-opacity">
+                                                            <button onClick={() => navigator.clipboard.writeText(msg.text)} title="Copy" className="p-1 hover:text-primary-500"><IconClipboard /></button>
+                                                            <button onClick={() => handleExportPDF(msg.text, 'response')} title="Export PDF" className="p-1 hover:text-primary-500"><IconDownload /></button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            {/* Input Area */}
+                            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+                                <div className="max-w-4xl mx-auto space-y-3">
+                                    {/* Controls */}
+                                    <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                                        <label className="flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-xs font-medium text-gray-600 dark:text-gray-300 transition-colors whitespace-nowrap">
+                                            <IconUpload /> {fileToUpload ? fileToUpload.name.substring(0, 15) + '...' : 'Attach Context'}
+                                            <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={(e) => setFileToUpload(e.target.files?.[0] || null)} />
+                                        </label>
+                                        
+                                        <div className="h-4 w-px bg-gray-300 dark:bg-gray-600"></div>
+
+                                        <select 
+                                            value={outputFormat}
+                                            onChange={(e) => setOutputFormat(e.target.value as OutputFormat)}
+                                            className="bg-transparent text-xs font-medium text-gray-600 dark:text-gray-300 outline-none cursor-pointer hover:text-primary-500"
+                                        >
+                                            {FORMAT_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                        </select>
+                                        
+                                        {user.plan !== 'free' && (
+                                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                                <input type="checkbox" checked={useThinking} onChange={e => setUseThinking(e.target.checked)} className="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                                <span className="text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1"><IconBrain /> Deep Think</span>
+                                            </label>
+                                        )}
+                                    </div>
+
+                                    {/* Text Box */}
+                                    <div className="relative">
+                                        {isProcessingFile && (
+                                            <div className="absolute inset-0 bg-white/70 dark:bg-gray-800/70 z-10 flex items-center justify-center rounded-xl backdrop-blur-sm">
+                                                <div className="flex items-center gap-2 text-sm text-primary-600 font-medium">
+                                                    <div className="loader w-4 h-4 border-2 border-primary-600 border-t-transparent !mb-0" />
+                                                    Extracting text...
+                                                </div>
+                                            </div>
+                                        )}
+                                        <textarea
+                                            value={input}
+                                            onChange={(e) => setInput(e.target.value)}
+                                            onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                                            placeholder="Ask about a lesson plan, rubric, or quiz..."
+                                            className="w-full pl-4 pr-12 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none shadow-sm dark:text-white"
+                                            rows={2}
+                                        />
+                                        <button 
+                                            onClick={handleSend}
+                                            disabled={isStreaming || (!input.trim() && !fileToUpload) || isProcessingFile}
+                                            className="absolute right-2 bottom-2 p-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
+                                        >
+                                            {isStreaming ? <div className="loader w-4 h-4 border-2 border-white border-t-transparent !mb-0" /> : <IconSend />}
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-center text-gray-400">AI can make mistakes. Verify info.</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* DOCS TAB */}
+                    {activeTab === 'docs' && (
+                        <div className="p-6 h-full overflow-y-auto">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-lg font-bold dark:text-white">Your Documents ({docs.length})</h3>
+                                <label className={`px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 cursor-pointer flex items-center gap-2 shadow-sm font-medium transition-transform active:scale-95 ${isProcessingFile ? 'opacity-50 cursor-wait' : ''}`}>
+                                    {isProcessingFile ? <div className="loader w-4 h-4 border-2 border-white border-t-transparent !mb-0"/> : <IconUpload />} 
+                                    {isProcessingFile ? 'Uploading...' : 'Upload New'}
+                                    <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={handleFileUpload} disabled={isProcessingFile} />
+                                </label>
+                            </div>
+                            {docs.length === 0 ? (
+                                <div className="text-center py-20 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700">
+                                    <p className="text-gray-400">No documents yet. Upload a PDF/DOCX to start.</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {docs.map(doc => (
+                                        <div key={doc.id} className="group p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all flex flex-col justify-between">
+                                            <div>
+                                                <div className="flex items-start justify-between mb-2">
+                                                    <IconFile type={doc.type} />
+                                                    <span className="text-xs text-gray-400 uppercase bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">{doc.type}</span>
+                                                </div>
+                                                <h4 className="font-semibold text-gray-800 dark:text-gray-100 truncate mb-1" title={doc.name}>{doc.name}</h4>
+                                                <p className="text-xs text-gray-500">{(doc.size / 1024).toFixed(1)} KB • {new Date(doc.created_at || 0).toLocaleDateString()}</p>
+                                            </div>
+                                            <div className="mt-4 flex gap-2 pt-4 border-t border-gray-100 dark:border-gray-700">
+                                                <button onClick={() => { setInput(`Analyze this document: \n\n${doc.content.substring(0, 5000)}...`); setActiveTab('chat'); }} className="flex-1 text-xs py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 font-medium">Analyze</button>
+                                                <button onClick={() => {
+                                                    const key = `${STORAGE_KEYS.DOCS_PREFIX}${user.id}`; // Simple delete for now
+                                                    // In real app, call API
+                                                    setDocs(d => d.filter(x => x.id !== doc.id));
+                                                }} className="p-2 text-gray-400 hover:text-red-500 rounded hover:bg-red-50 dark:hover:bg-red-900/20"><IconTrash /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* CALENDAR TAB */}
+                    {activeTab === 'calendar' && (
+                        <div className="p-6 h-full overflow-y-auto">
+                            <div className="mb-8">
+                                <h3 className="text-lg font-bold dark:text-white mb-4">Add New Event</h3>
+                                <div className="p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col md:flex-row gap-3 items-end">
+                                    <div className="flex-1 w-full">
+                                        <label className="text-xs text-gray-500 mb-1 block">Title</label>
+                                        <input 
+                                            value={newEvent.title} 
+                                            onChange={e => setNewEvent({...newEvent, title: e.target.value})}
+                                            placeholder="e.g., Math Quiz, History Lesson" 
+                                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
+                                        />
+                                    </div>
+                                    <div className="w-full md:w-48">
+                                        <label className="text-xs text-gray-500 mb-1 block">Date</label>
+                                        <input 
+                                            type="date" 
+                                            value={newEvent.date} 
+                                            onChange={e => setNewEvent({...newEvent, date: e.target.value})}
+                                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
+                                        />
+                                    </div>
+                                    <div className="w-full md:w-32">
+                                        <label className="text-xs text-gray-500 mb-1 block">Type</label>
+                                        <select 
+                                            value={newEvent.type} 
+                                            onChange={e => setNewEvent({...newEvent, type: e.target.value as any})}
+                                            className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
+                                        >
+                                            <option value="class">Class</option>
+                                            <option value="deadline">Deadline</option>
+                                            <option value="meeting">Meeting</option>
+                                        </select>
+                                    </div>
+                                    <button 
+                                        onClick={handleAddEvent}
+                                        disabled={!newEvent.title || !newEvent.date}
+                                        className="w-full md:w-auto px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                                    >
+                                        Add
+                                    </button>
+                                </div>
+                            </div>
+
+                            <h3 className="text-lg font-bold dark:text-white mb-4">Upcoming Schedule</h3>
+                            <div className="space-y-4">
+                                {events.map(ev => (
+                                    <div key={ev.id} className="flex items-center p-4 bg-white dark:bg-gray-800 rounded-xl border-l-4 border-green-500 shadow-sm transition-transform hover:translate-x-1">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded uppercase ${
+                                                    ev.type === 'deadline' ? 'bg-red-100 text-red-600' : 
+                                                    ev.type === 'meeting' ? 'bg-blue-100 text-blue-600' : 
+                                                    'bg-green-100 text-green-600'
+                                                }`}>{ev.type}</span>
+                                                <span className="text-xs text-gray-400 font-mono">{ev.date}</span>
+                                            </div>
+                                            <h4 className="font-medium text-gray-800 dark:text-gray-100">{ev.title}</h4>
+                                        </div>
+                                        <button onClick={async () => {
+                                            await api.deleteEvent(user.id, ev.id);
+                                            setEvents(prev => prev.filter(e => e.id !== ev.id));
+                                        }} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><IconTrash /></button>
+                                    </div>
+                                ))}
+                                {events.length === 0 && (
+                                    <div className="text-center py-12 opacity-50">
+                                        <IconCalendar />
+                                        <p className="mt-2 text-sm">No events scheduled. Add one above!</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                </main>
             </div>
 
             {/* Modals */}
-            <GeneratorModal title="Lesson Planner" icon={<IconClipboard />} isOpen={modalState.lesson} onClose={() => toggleModal('lesson', false)} onGenerate={() => { 
-                const topic = (document.getElementById('lesson-topic') as HTMLInputElement).value;
-                handleSendMessage(`Create a lesson plan on ${topic}.`, 'report', { type: 'lesson' });
-                toggleModal('lesson', false);
-            }}>
-                <div>
-                    <label className="block text-sm font-medium mb-1 dark:text-gray-300">Topic</label>
-                    <input id="lesson-topic" className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border dark:border-gray-600 outline-none dark:text-white" placeholder="e.g. Photosynthesis" />
-                </div>
-            </GeneratorModal>
-
-            <GeneratorModal title="Quiz Maker" icon={<IconClipboardCheck />} isOpen={modalState.assessment} onClose={() => toggleModal('assessment', false)} onGenerate={() => {
-                const topic = (document.getElementById('quiz-topic') as HTMLInputElement).value;
-                const prompt = lessonCtx ? `Based on this lesson plan: ${lessonCtx.substring(0,500)}..., create a quiz on ${topic}` : `Create a quiz on ${topic}`;
-                handleSendMessage(prompt, 'auto', { type: 'quiz' });
-                toggleModal('assessment', false);
-            }}>
-                <div>
-                    <label className="block text-sm font-medium mb-1 dark:text-gray-300">Topic</label>
-                    <input id="quiz-topic" className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border dark:border-gray-600 outline-none dark:text-white" defaultValue={lessonCtx ? "the lesson plan above" : ""} />
-                </div>
-            </GeneratorModal>
-            
-            <GeneratorModal title="Rubric Builder" icon={<IconTable />} isOpen={modalState.rubric} onClose={() => toggleModal('rubric', false)} onGenerate={() => {
-                 handleSendMessage(`Create a rubric.`, 'table'); toggleModal('rubric', false);
-            }}>
-                 <p className="text-gray-500">Quick Rubric Generator</p>
-            </GeneratorModal>
-
-            <TermsModal isOpen={modalState.terms} onClose={() => toggleModal('terms', false)} />
-            <ApiKeyModal isOpen={modalState.apiKey} onClose={() => toggleModal('apiKey', false)} />
-            {user && <AdminSettingsModal isOpen={modalState.settings} onClose={() => toggleModal('settings', false)} user={user} />}
-            {user && <PricingModal isOpen={modalState.pricing} onClose={() => toggleModal('pricing', false)} user={user} />}
+            <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
+            <ApiKeyModal isOpen={showApiKey} onClose={() => setShowApiKey(false)} />
+            <PricingModal isOpen={showPricing} onClose={() => setShowPricing(false)} user={user} />
+            {user.role === 'admin' && <AdminSettingsModal isOpen={showAdmin} onClose={() => setShowAdmin(false)} user={user} />}
         </div>
     );
 };
 
 const root = createRoot(document.getElementById('root')!);
-try {
-  root.render(<App />);
-} catch(e) {
-  console.error("Mounting Error:", e);
-  document.getElementById('root')!.innerHTML = `<div style="color:red; padding:20px;">App Crashed: ${e}</div>`;
-}
+root.render(<App />);
